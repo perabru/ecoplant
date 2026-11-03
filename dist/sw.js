@@ -1,5 +1,5 @@
 /* App shell only. Firebase user records remain in the UID-scoped IndexedDB store. */
-const VERSION = 'v4-ecoplant-themes';
+const VERSION = 'v5-ecoplant-report-export';
 const PREFIX = 'ecoplant-';
 const SHELL_CACHE = `${PREFIX}shell-${VERSION}`;
 const SDK_CACHE = `${PREFIX}sdk-${VERSION}`;
