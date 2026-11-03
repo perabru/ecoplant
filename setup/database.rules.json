@@ -1,0 +1,223 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "ecoplant": {
+      "users": {
+        "$uid": {
+          ".read": "auth != null && auth.uid == $uid",
+          ".write": "auth != null && auth.uid == $uid",
+          "profile": {
+            "name": {
+              ".validate": "newData.isString() && newData.val().length <= 120"
+            },
+            "displayName": {
+              ".validate": "newData.isString() && newData.val().length <= 120"
+            },
+            "email": {
+              ".validate": "newData.isString() && newData.val().length <= 320"
+            },
+            "photoURL": {
+              ".validate": "newData.isString() && newData.val().length <= 240000"
+            },
+            "photo": {
+              ".validate": "newData.isString() && newData.val().length <= 240000"
+            },
+            "reminders": {
+              ".validate": "newData.isBoolean()"
+            },
+            "createdAt": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "updatedAt": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "$other": {
+              ".validate": false
+            },
+            "modelURL": {
+              ".validate": "newData.isString() && newData.val().length <= 300 && (newData.val() == '' || newData.val().matches(/^https:\\/\\/teachablemachine\\.withgoogle\\.com\\/models\\/[A-Za-z0-9_-]+\\/?$/))"
+            },
+            "healthyClass": {
+              ".validate": "newData.isString() && newData.val().length <= 200"
+            },
+            ".validate": "newData.hasChildren(['displayName', 'email', 'createdAt'])"
+          },
+          "plants": {
+            "$id": {
+              ".validate": "newData.hasChildren(['id', 'name']) && newData.child('id').val() == $id",
+              "id": {
+                ".validate": "newData.isString() && newData.val().length <= 128"
+              },
+              "name": {
+                ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 120"
+              },
+              "species": {
+                ".validate": "newData.isString() && newData.val().length <= 180"
+              },
+              "location": {
+                ".validate": "newData.isString() && newData.val().length <= 180"
+              },
+              "notes": {
+                ".validate": "newData.isString() && newData.val().length <= 4000"
+              },
+              "photo": {
+                ".validate": "newData.isString() && newData.val().length <= 240000"
+              },
+              "createdAt": {
+                ".validate": "newData.isNumber() && newData.val() >= 0"
+              },
+              "updatedAt": {
+                ".validate": "newData.isNumber() && newData.val() >= 0"
+              },
+              "$other": {
+                ".validate": false
+              }
+            },
+            ".indexOn": [
+              "updatedAt"
+            ],
+            ".validate": "newData.hasChildren()"
+          },
+          "analyses": {
+            "$id": {
+              ".validate": "newData.hasChildren(['id', 'date']) && newData.child('id').val() == $id",
+              "id": {
+                ".validate": "newData.isString() && newData.val().length <= 128"
+              },
+              "plantId": {
+                ".validate": "newData.isString() && newData.val().length <= 128"
+              },
+              "photo": {
+                ".validate": "newData.isString() && newData.val().length <= 240000"
+              },
+              "date": {
+                ".validate": "(newData.isString() && newData.val().length <= 40) || newData.isNumber()"
+              },
+              "symptoms": {
+                "$index": {
+                  ".validate": "newData.isString() && newData.val().length <= 200"
+                }
+              },
+              "result": {
+                ".validate": "newData.hasChildren(['method'])",
+                "method": {
+                  ".validate": "newData.isString() && (newData.val() == 'teachable-machine' || newData.val() == 'guided')"
+                },
+                "title": {
+                  ".validate": "newData.isString() && newData.val().length <= 400"
+                },
+                "summary": {
+                  ".validate": "newData.isString() && newData.val().length <= 5000"
+                },
+                "modelURL": {
+                  ".validate": "newData.isString() && newData.val().length <= 300"
+                },
+                "modelName": {
+                  ".validate": "newData.isString() && newData.val().length <= 400"
+                },
+                "modelLabels": {
+                  ".validate": "newData.hasChildren()",
+                  "$index": {
+                    ".validate": "$index.matches(/^(0|[1-9][0-9]?|1[0-9][0-9])$/) && (newData.isString() && newData.val().length <= 200)"
+                  }
+                },
+                "predictions": {
+                  ".validate": "newData.hasChildren()",
+                  "$index": {
+                    ".validate": "$index.matches(/^[0-2]$/) && (newData.hasChildren(['className', 'probability']))",
+                    "className": {
+                      ".validate": "newData.isString() && newData.val().length <= 200"
+                    },
+                    "probability": {
+                      ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1"
+                    },
+                    "$other": {
+                      ".validate": false
+                    }
+                  }
+                },
+                "topClass": {
+                  ".validate": "newData.isString() && newData.val().length <= 200"
+                },
+                "confidence": {
+                  ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1"
+                },
+                "analyzedAt": {
+                  ".validate": "(newData.isString() && newData.val().length <= 40) || newData.isNumber()"
+                },
+                "care": {
+                  ".validate": "newData.hasChildren()",
+                  "$index": {
+                    ".validate": "$index.matches(/^([0-9]|1[0-9])$/) && (newData.isString() && newData.val().length <= 3000)"
+                  }
+                },
+                "possibilities": {
+                  ".validate": "newData.hasChildren()",
+                  "$index": {
+                    ".validate": "$index.matches(/^[0-9]$/) && (newData.hasChildren(['name', 'reason']))",
+                    "name": {
+                      ".validate": "newData.isString() && newData.val().length <= 400"
+                    },
+                    "reason": {
+                      ".validate": "newData.isString() && newData.val().length <= 4000"
+                    },
+                    "$other": {
+                      ".validate": false
+                    }
+                  }
+                },
+                "severity": {
+                  ".validate": "newData.isString() && (newData.val() == 'observe' || newData.val() == 'attention')"
+                },
+                "disclaimer": {
+                  ".validate": "newData.isString() && newData.val().length <= 5000"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              },
+              "notes": {
+                ".validate": "newData.isString() && newData.val().length <= 4000"
+              },
+              "createdAt": {
+                ".validate": "newData.isNumber() && newData.val() >= 0"
+              },
+              "updatedAt": {
+                ".validate": "newData.isNumber() && newData.val() >= 0"
+              },
+              "$other": {
+                ".validate": false
+              }
+            },
+            ".indexOn": [
+              "date",
+              "plantId"
+            ],
+            ".validate": "newData.hasChildren()"
+          },
+          "$other": {
+            ".validate": false
+          },
+          ".validate": "newData.hasChildren()"
+        }
+      },
+      "$other": {
+        ".validate": false
+      },
+      "config": {
+        ".read": false,
+        ".write": false,
+        "appName": {
+          ".validate": "newData.isString() && newData.val() == 'Ecoplant'"
+        },
+        "schemaVersion": {
+          ".validate": "newData.isNumber() && newData.val() == 1"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    }
+  }
+}

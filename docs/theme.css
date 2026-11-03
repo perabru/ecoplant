@@ -1,0 +1,258 @@
+/* Switch by shadowfax29, MIT. Original HTML/CSS: https://uiverse.io/shadowfax29/sweet-warthog-93. See notices/theme-license.txt. Only selector/keyframe names are prefixed. */
+/* The switch - the box around the slider */
+.eco-theme-switch {
+  font-size: 17px;
+  position: relative;
+  display: inline-block;
+  width: 3.5em;
+  height: 2em;
+  --mud: #8B4513;
+}
+
+/* Hide default HTML checkbox */
+.eco-theme-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The slider */
+.eco-theme-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(to bottom,skyblue 70%,var(--mud));
+  transition: .4s;
+  border-radius: 30px;
+  border: 2px solid black;
+}
+
+.eco-theme-slider:before {
+  position: absolute;
+  content: "";
+  height: 1.4em;
+  width: 1.4em;
+  border-radius: 20px;
+  left: 0.3em;
+  bottom: 0.3em;
+  transition: .4s;
+}
+
+.eco-theme-plant {
+  position: absolute;
+  bottom: 3px;
+  right: -30px;
+  z-index: 3;
+  opacity: 0;
+}
+
+.eco-theme-seed {
+  position: absolute;
+  content: "";
+  height: 1.4em;
+  width: 1.4em;
+  border-radius: 20px;
+  left: 0.3em;
+  bottom: 0.3em;
+  transition: .4s;
+}
+
+.eco-theme-switch input:checked + .eco-theme-slider {
+  background-color: #156829;
+}
+
+.eco-theme-switch input:focus + .eco-theme-slider {
+  box-shadow: 0 0 1px #156829;
+}
+
+.eco-theme-switch input:checked + .eco-theme-slider:before,
+.eco-theme-switch input:checked + .eco-theme-slider .eco-theme-seed {
+  transform: translateX(1.5em);
+}
+
+.eco-theme-switch input:checked + .eco-theme-slider .eco-theme-seed {
+  opacity: 0;
+}
+
+.eco-theme-switch input:checked + .eco-theme-slider .eco-theme-plant {
+  animation: eco-theme-zoom-in 0.5s forwards;
+}
+
+@keyframes eco-theme-zoom-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Integration size only: the original seed/plant SVG paths, colors and growth animation are preserved. */
+.eco-theme-plant{width:1.55em;height:1.9em;right:.22em;bottom:3px}
+.eco-theme-control{display:inline-flex;align-items:center;gap:10px;min-height:44px;flex-shrink:0;vertical-align:middle;color:var(--ink,#23352c);line-height:1}
+.eco-theme-copy{font-family:'DM Sans',system-ui,sans-serif;font-size:10px;font-weight:600;white-space:nowrap}
+.eco-theme-switch{flex-shrink:0;vertical-align:middle}
+.eco-theme-switch input:focus-visible+.eco-theme-slider{outline:3px solid #91af7e;outline-offset:4px;box-shadow:none}
+@media(max-width:420px){.topbar .eco-theme-copy,.auth .eco-theme-copy{display:none}}
+@media(prefers-reduced-motion:reduce){
+  .eco-theme-slider,.eco-theme-seed,.eco-theme-plant{transition:none!important;animation:none!important}
+  .eco-theme-switch input:checked+.eco-theme-slider .eco-theme-plant{opacity:1;transform:scale(1)}
+}
+
+/* Screen-only palettes leave the existing A4 / PDF report styling untouched. */
+@media screen {
+  html[data-theme="light"]{color-scheme:light}
+  html[data-theme="dark"]{
+    color-scheme:dark;
+    --green:#a7c99c;--green2:#3e7053;--ink:#edf4e8;--muted:#afbea8;
+    --paper:#101b15;--card:#18271e;--line:#34483a;--sage:#283b2d;
+    --amber:#e8bd78;--red:#f1a092;--shadow:0 10px 35px #00000016;
+    background:var(--paper);color:var(--ink)
+  }
+  html[data-theme="dark"] body{background:var(--paper);color:var(--ink)}
+  html[data-theme="dark"] ::selection{background:#9abb87;color:#102014}
+  html[data-theme="dark"] .auth,
+  html[data-theme="dark"] .auth-panel,
+  html[data-theme="dark"] .panel,
+  html[data-theme="dark"] .stat,
+  html[data-theme="dark"] .plant-card,
+  html[data-theme="dark"] .setting,
+  html[data-theme="dark"] .record,
+  html[data-theme="dark"] .possibility,
+  html[data-theme="dark"] dialog{background:var(--card);color:var(--ink);border-color:var(--line)}
+  html[data-theme="dark"] .sidebar{background:#142219;border-color:var(--line)}
+  html[data-theme="dark"] .topbar{background:#122017ed;border-color:var(--line)}
+  html[data-theme="dark"] .mobile-nav{background:#142219f5;border-color:var(--line)}
+  html[data-theme="dark"] .nav-link,
+  html[data-theme="dark"] .breadcrumb,
+  html[data-theme="dark"] .mobile-nav a{color:#b2bfa9}
+  html[data-theme="dark"] .nav-link:hover{background:#263d2c;color:#e2efd7}
+  html[data-theme="dark"] .nav-link.active{background:#315d47;color:#f3f9ee}
+  html[data-theme="dark"] .mobile-nav a.active{color:#c0dda9}
+  html[data-theme="dark"] .mobile-nav .scan-nav{background:#3c6d50;color:#fff}
+  html[data-theme="dark"] .brand .brand-icon{background:#315d47;color:#f3f9ee}
+  html[data-theme="dark"] .auth-story{background:#203627}
+  html[data-theme="dark"] .auth-story:before{opacity:.13}
+  html[data-theme="dark"] .auth-story h2 i{color:#b0cd9f}
+  html[data-theme="dark"] .auth-story>p,
+  html[data-theme="dark"] .auth-story footer{color:#b2c3a8}
+  html[data-theme="dark"] .auth-story img[src$="garden.svg"],
+  html[data-theme="dark"] .hero-image[src$="garden.svg"]{filter:brightness(.85) saturate(.85)}
+  html[data-theme="dark"] .hero{background:#223c2c;border-color:#3a5540}
+  html[data-theme="dark"] .hero .eyebrow{color:#bbd1ac}
+  html[data-theme="dark"] .hero p{color:#bdccb3}
+  html[data-theme="dark"] .hero-tag{background:#1d3125de;border-color:#4c654a;color:#d7e7ca}
+  html[data-theme="dark"] .btn{background:#315d47;color:#f4f9ef}
+  html[data-theme="dark"] .btn:hover{background:#3d7053}
+  html[data-theme="dark"] .btn.secondary{background:transparent;color:#c1d9b3;border-color:#536c54}
+  html[data-theme="dark"] .btn.secondary:hover{background:#293e2e}
+  html[data-theme="dark"] .btn.white{background:#253a2b;color:#e5efde}
+  html[data-theme="dark"] .btn.white:hover{background:#304b36}
+  html[data-theme="dark"] .btn.danger{background:#4a2c26;color:#ffc6b6}
+  html[data-theme="dark"] .btn.danger:hover{background:#5b352d}
+  html[data-theme="dark"] .icon-btn{background:#203226;color:#bdd6ae;border-color:#3e5541}
+  html[data-theme="dark"] .link,
+  html[data-theme="dark"] .auth-switch a{color:#c0d8b1}
+  html[data-theme="dark"] .field input,
+  html[data-theme="dark"] .field textarea,
+  html[data-theme="dark"] .field select,
+  html[data-theme="dark"] .search input{background:#142219;color:#eef4e8;border-color:#425741}
+  html[data-theme="dark"] .field input::placeholder,
+  html[data-theme="dark"] .field textarea::placeholder,
+  html[data-theme="dark"] .search input::placeholder{color:#98aa8f;opacity:1}
+  html[data-theme="dark"] .field input:-webkit-autofill,
+  html[data-theme="dark"] .field input:-webkit-autofill:hover,
+  html[data-theme="dark"] .field input:-webkit-autofill:focus{-webkit-text-fill-color:#eef4e8;-webkit-box-shadow:0 0 0 1000px #142219 inset}
+  html[data-theme="dark"] input,
+  html[data-theme="dark"] select,
+  html[data-theme="dark"] textarea{accent-color:#a5c78f}
+  html[data-theme="dark"] input:focus,
+  html[data-theme="dark"] textarea:focus,
+  html[data-theme="dark"] select:focus{outline-color:#a5c78f}
+  html[data-theme="dark"] button:focus-visible,
+  html[data-theme="dark"] a:focus-visible{outline-color:#bad7a4}
+  html[data-theme="dark"] .status-pill{background:#1e3023;color:#bdd0b0;border-color:var(--line)}
+  html[data-theme="dark"] .status-dot{background:#a2c58b}
+  html[data-theme="dark"] .status-pill.local .status-dot{background:#e4b977}
+  html[data-theme="dark"] .notice{background:#2a3e2d;color:#cfdec3}
+  html[data-theme="dark"] .notice.amber,
+  html[data-theme="dark"] .badge.amber{background:#453823;color:#f0c78e}
+  html[data-theme="dark"] .notice.success{background:#284631;color:#c9e6b9}
+  html[data-theme="dark"] .form-error{background:#482b25;color:#ffd0c1}
+  html[data-theme="dark"] .install-tile,
+  html[data-theme="dark"] .info-aside{background:#263d2b}
+  html[data-theme="dark"] .install-tile p,
+  html[data-theme="dark"] .info-aside p,
+  html[data-theme="dark"] .detail-notes,
+  html[data-theme="dark"] .care-list li{color:#b5c5a9}
+  html[data-theme="dark"] .stat-icon,
+  html[data-theme="dark"] .empty-state>.empty-icon,
+  html[data-theme="dark"] .badge,
+  html[data-theme="dark"] .avatar{background:#2c432e;color:#bdd6a7}
+  html[data-theme="dark"] .tips-item>.icon,
+  html[data-theme="dark"] .upload-box .icon,
+  html[data-theme="dark"] .scan-placeholder>.icon{color:#adc698}
+  html[data-theme="dark"] .plant-card .plant-photo,
+  html[data-theme="dark"] .detail-photo{background:#263c2c}
+  html[data-theme="dark"] .plant-card .plant-placeholder{background:linear-gradient(145deg,#2e4430,#223726)}
+  html[data-theme="dark"] .upload-box,
+  html[data-theme="dark"] .scan-photo{background:#203225;border-color:#637657}
+  html[data-theme="dark"] .upload-box.has-photo .upload-label{background:#142219eb;color:#e1efd5}
+  html[data-theme="dark"] .symptom:has(input:checked){background:#2c442f;border-color:#91ae7a;color:#e0efcf}
+  html[data-theme="dark"] .scan-step{color:#bbcfaa}
+  html[data-theme="dark"] .record-info time,
+  html[data-theme="dark"] .footer-caption,
+  html[data-theme="dark"] .divider{color:#a7b69d}
+  html[data-theme="dark"] dialog::backdrop{background:#060e09bb}
+  html[data-theme="dark"] #toast{background:#315d47;color:#f4f9ef}
+  html[data-theme="dark"] #toast.error{background:#914b3e;color:#fff}
+  html[data-theme="dark"] .spinner{border-color:#4a6443;border-top-color:#bfdaa9}
+
+  /* report.js injects light styling inline; these scoped selectors have higher specificity. */
+  html[data-theme="dark"] .eco-report{--rp-green:#e5efdf;--rp-light:#283b2b;--rp-line:#3b4f3d;color:#e5efdf}
+  html[data-theme="dark"] .rp-sheet{background:#18271e;border-color:#3b4f3d;box-shadow:0 12px 40px #00000018}
+  html[data-theme="dark"] .rp-photo-wrap{background:#1c2f22}
+  html[data-theme="dark"] .rp-photo,
+  html[data-theme="dark"] .rp-no-photo{background:#2b412d;color:#b3ce9e}
+  html[data-theme="dark"] .rp-record-details,
+  html[data-theme="dark"] .rp-observation{background:#1c2f22}
+  html[data-theme="dark"] .rp-status,
+  html[data-theme="dark"] .rp-chip{background:#2d432e;color:#c1d9ae}
+  html[data-theme="dark"] .rp-status.amber{background:#493b25;color:#efc487}
+  html[data-theme="dark"] .rp-draft-banner{background:#2a412b;border-color:#486240;color:#d3e5c0}
+  html[data-theme="dark"] .rp-disclaimer{background:#223825;color:#bfceb1}
+  html[data-theme="dark"] .rp-toolbar .eyebrow,
+  html[data-theme="dark"] .rp-toolbar p,
+  html[data-theme="dark"] .rp-kicker,
+  html[data-theme="dark"] .rp-reportid,
+  html[data-theme="dark"] .rp-photo-note,
+  html[data-theme="dark"] .rp-summary>.rp-plant,
+  html[data-theme="dark"] .rp-metric-label p,
+  html[data-theme="dark"] .rp-model-note,
+  html[data-theme="dark"] .rp-record-details dt,
+  html[data-theme="dark"] .rp-section .rp-section-note,
+  html[data-theme="dark"] .rp-checks li,
+  html[data-theme="dark"] .rp-observation,
+  html[data-theme="dark"] .rp-guided-card p,
+  html[data-theme="dark"] .rp-metadata p,
+  html[data-theme="dark"] .rp-bottom{color:#adbea2}
+  html[data-theme="dark"] .rp-reportid strong,
+  html[data-theme="dark"] .rp-prediction-label strong,
+  html[data-theme="dark"] .rp-metric-label strong{color:#d5e7c5}
+  html[data-theme="dark"] .rp-donut circle{stroke:#3d533b}
+  html[data-theme="dark"] .rp-donut .rp-progress{stroke:#a9ca91}
+  html[data-theme="dark"] .rp-track{background:#30472f}
+  html[data-theme="dark"] .rp-bar{background:#90b37a}
+  html[data-theme="dark"] .rp-prediction:first-of-type .rp-bar{background:#aed294}
+  html[data-theme="dark"] .rp-checks .icon{color:#b4d29e}
+}
+@media print{
+  html{color-scheme:light!important}
+  .eco-theme-control{display:none!important}
+}

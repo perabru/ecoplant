@@ -1,0 +1,60 @@
+/*
+ * Ecoplant adaptations of:
+ * Uiverse "ancient-quail-68" by boryanakrasteva (Boryana), Copyright (c) 2026.
+ * CodePen "CSS Animated plant" by ldvick3m, Copyright (c) ldvick3m.
+ * Sources and changes: notices/experience-licenses.txt.
+ *
+ * MIT License
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+.eco-splash,.eco-loading-overlay{--eco-experience-bg:var(--paper,#f7f7f0);--eco-experience-card:var(--card,#fffefa);--eco-experience-ink:var(--ink,#23352c);--eco-loader-color:var(--green,#173e32);color:var(--eco-experience-ink);font-family:'DM Sans',system-ui,sans-serif}
+.eco-splash{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;min-height:100dvh;padding:25px;background:var(--eco-experience-bg);opacity:1;transition:opacity .23s ease,visibility .23s ease;isolation:isolate}
+.eco-splash-content{text-align:center;position:relative;max-width:390px;width:100%}
+.eco-splash-logo{font-family:'Libre Caslon Display',Georgia,serif;font-size:64px;font-weight:400;line-height:1;letter-spacing:-.055em;margin:15px 0 13px;color:var(--eco-experience-ink)}
+.eco-splash-logo>span{color:#94aa7b}.eco-splash-tagline{font-size:12px;letter-spacing:.025em;line-height:1.8;color:var(--muted,#768074);margin:0}
+.eco-splash-progress{display:flex;align-items:center;justify-content:center;gap:13px;margin-top:42px;font-size:10px;color:var(--muted,#768074);min-height:37px}.eco-splash-progress[hidden],.eco-splash-recovery[hidden],.eco-loading-overlay[hidden]{display:none!important}
+.eco-splash-leaving{opacity:0;visibility:hidden;pointer-events:none}.eco-splash-delayed .eco-blade{animation-play-state:paused}
+.eco-splash-recovery{margin-top:28px;padding:18px;border:1px solid var(--line,#e3e5d9);border-radius:12px;background:var(--eco-experience-card);font-size:11px;color:var(--muted,#768074);line-height:1.8}.eco-splash-recovery p{margin:0 0 15px}.eco-experience-retry,.eco-experience-continue{font:inherit;cursor:pointer;border-radius:9px;padding:10px 14px;min-height:40px;border:1px solid var(--line,#d6decf);background:var(--eco-experience-bg);color:var(--eco-experience-ink)}.eco-experience-retry{background:var(--green,#173e32);color:var(--button-text,#fff);border-color:transparent;margin-right:7px}.eco-experience-continue{background:transparent}.eco-experience-retry:focus-visible,.eco-experience-continue:focus-visible{outline:3px solid #91af7e;outline-offset:3px}
+.eco-loading-overlay{position:fixed;inset:0;z-index:900;display:grid;place-items:center;padding:24px;background:#173e323e;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.eco-loading-card{background:var(--eco-experience-card);color:var(--eco-experience-ink);border:1px solid var(--line,#e3e5d9);width:min(100%,315px);border-radius:20px;padding:38px 25px 24px;text-align:center;box-shadow:0 20px 80px #10271c26;animation:eco-loading-appear .16s ease-out both}
+.eco-loading-message{font-size:13px;font-weight:500;line-height:1.8;margin:25px 0 9px;overflow-wrap:anywhere}.eco-loading-detail{font-family:'Libre Caslon Display',Georgia,serif;font-size:20px;letter-spacing:-.03em;color:var(--muted,#768074)}
+@keyframes eco-loading-appear{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+/* Original seven-cell honeycomb geometry and timing; renamed and recolored. */
+.eco-loader{display:inline-flex;align-items:center;justify-content:center;width:80px;height:72px;vertical-align:middle;flex-shrink:0;--eco-loader-color:var(--green,#173e32)}
+.eco-loader-small{width:27px;height:27px}.eco-loader-small>.eco-honeycomb{transform:scale(.34)}
+.eco-honeycomb{height:24px;position:relative;width:24px;display:block;flex-shrink:0}
+.eco-honeycomb>span{animation:eco-honeycomb 2.1s infinite backwards;background:var(--eco-loader-color);height:12px;margin-top:6px;position:absolute;width:24px;display:block}
+.eco-honeycomb>span:after,.eco-honeycomb>span:before{content:'';border-left:12px solid transparent;border-right:12px solid transparent;position:absolute;left:0;right:0}
+.eco-honeycomb>span:after{top:-6px;border-bottom:6px solid var(--eco-loader-color)}.eco-honeycomb>span:before{bottom:-6px;border-top:6px solid var(--eco-loader-color)}
+.eco-honeycomb>span:nth-child(1){animation-delay:0s;left:-28px;top:0}.eco-honeycomb>span:nth-child(2){animation-delay:.1s;left:-14px;top:22px}.eco-honeycomb>span:nth-child(3){animation-delay:.2s;left:14px;top:22px}.eco-honeycomb>span:nth-child(4){animation-delay:.3s;left:28px;top:0}.eco-honeycomb>span:nth-child(5){animation-delay:.4s;left:14px;top:-22px}.eco-honeycomb>span:nth-child(6){animation-delay:.5s;left:-14px;top:-22px}.eco-honeycomb>span:nth-child(7){animation-delay:.6s;left:0;top:0}
+@keyframes eco-honeycomb{0%,20%,80%,100%{opacity:0;transform:scale(0)}30%,70%{opacity:1;transform:scale(1)}}
+/* Faithful compilation of ldvick3m's original SCSS, scoped to the splash. */
+.eco-plant-wrap{--eco-plant-border:#aad670;--eco-plant-fill:#abe07a;--eco-pot-one:#d1bb94;--eco-pot-two:#d6c8a5;display:flex;align-items:center;justify-content:center;height:200px;padding-top:90px;position:relative}
+.eco-plant-base{position:relative;display:block;width:110px;isolation:isolate;transform:scale(1.08);flex-shrink:0}
+.eco-flowerpot{position:relative;width:100%;height:70px;overflow:hidden;background-image:linear-gradient(50deg,var(--eco-experience-bg) 20px,var(--eco-experience-bg) 21px,transparent 20px),linear-gradient(310deg,var(--eco-experience-bg) 20px,var(--eco-pot-one) 21px,var(--eco-pot-one) 100%)}
+.eco-flowerpot:after{content:' ';position:absolute;display:block;left:30px;top:-5px;width:60px;height:90px;background:linear-gradient(285deg,var(--eco-pot-one) 20px,var(--eco-pot-two) 21px,var(--eco-pot-two) 100%);transform:rotate(50deg)}
+.eco-blade{position:absolute;bottom:40px;overflow:hidden;transform-origin:50% 100%;z-index:-1}.eco-blade:before,.eco-blade:after{content:'';position:absolute;top:0;border-top:0;border-radius:50%}
+.eco-blade-left-s{height:60px;width:50px;left:-15px;animation:eco-plant-wave 3s infinite ease-in-out}.eco-blade-left-s:before{right:0;height:50px;width:90px;border-right:20px solid var(--eco-plant-border)}.eco-blade-left-s:after{top:1px;right:6px;height:120px;width:90px;transform:rotateZ(15deg);border-right:18px solid var(--eco-plant-fill)}
+.eco-blade-left-l{height:100px;width:80px;left:-30px;animation:eco-plant-wave2 4s infinite ease-in-out}.eco-blade-left-l:before{right:2px;height:190px;width:160px;border-right:25px solid var(--eco-plant-border);transform:rotateZ(20deg)}.eco-blade-left-l:after{right:7px;height:190px;width:160px;border-right:18px solid var(--eco-plant-fill);transform:rotateZ(25deg)}
+.eco-blade-right-s{height:50px;width:80px;right:-35px;animation:eco-plant-wave2 3.2s -.5s infinite ease-in-out}.eco-blade-right-s:before{left:0;height:190px;width:100px;border-left:22px solid var(--eco-plant-border)}.eco-blade-right-s:after{left:15px;height:190px;width:100px;border-left:13px solid var(--eco-plant-fill);transform:rotateZ(-10deg)}
+.eco-blade-right-l{height:75px;width:80px;right:-22px;animation:eco-plant-wave 3.2s -1s infinite ease-in-out}.eco-blade-right-l:before{left:0;height:190px;width:160px;border-left:26px solid var(--eco-plant-border)}.eco-blade-right-l:after{left:6px;height:190px;width:160px;border-left:20px solid var(--eco-plant-fill);transform:rotateZ(-10deg)}
+.eco-blade-center{height:120px;width:90px;left:-15px;animation:eco-plant-wave 3s -1.2s infinite ease-in-out}.eco-blade-center:before{right:10px;height:240px;width:140px;border-right:28px solid var(--eco-plant-border);transform:rotateZ(15deg)}.eco-blade-center:after{right:15px;height:240px;width:140px;border-right:17px solid var(--eco-plant-fill);transform:rotateZ(15deg)}
+@keyframes eco-plant-wave{0%{transform:rotateZ(3deg) translateZ(-1px)}25%{transform:rotateZ(-4deg) translateZ(-1px)}50%{transform:rotateZ(2deg) translateZ(-1px)}75%{transform:rotateZ(-6deg) translateZ(-1px)}100%{transform:rotateZ(3deg) translateZ(-1px)}}
+@keyframes eco-plant-wave2{0%{transform:rotateZ(0deg) translateZ(-1px)}25%{transform:rotateZ(-3deg) translateZ(-1px)}50%{transform:rotateZ(3deg) translateZ(-1px)}75%{transform:rotateZ(-1deg) translateZ(-1px)}100%{transform:rotateZ(0deg) translateZ(-1px)}}
+@media(max-width:480px){.eco-splash-logo{font-size:59px}.eco-splash-content{margin-top:-25px}.eco-loading-card{padding-top:31px}.eco-splash-tagline{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.eco-splash,.eco-loading-card{transition:none!important;animation:none!important}.eco-blade{animation:none!important}.eco-honeycomb>span{animation:none!important;opacity:1;transform:none}}
+@media print{.eco-splash,.eco-loading-overlay{display:none!important}}

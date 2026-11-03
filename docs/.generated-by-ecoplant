@@ -1,0 +1,31 @@
+{
+  "generator": "ecoplant-github-pages",
+  "schemaVersion": 1,
+  "source": "dist",
+  "files": [
+    ".nojekyll",
+    "THIRD_PARTY_NOTICES.txt",
+    "app.js",
+    "assets/apple-touch-icon.png",
+    "assets/database.rules.json",
+    "assets/favicon.svg",
+    "assets/garden.svg",
+    "assets/icon-192.png",
+    "assets/icon-512.png",
+    "assets/maskable-512.png",
+    "classifier.js",
+    "experience.css",
+    "experience.js",
+    "firebase.js",
+    "index.html",
+    "local-db.js",
+    "manifest.webmanifest",
+    "pwa.js",
+    "report.js",
+    "styles.css",
+    "sw.js",
+    "theme.css",
+    "theme.js",
+    "triage.js"
+  ]
+}

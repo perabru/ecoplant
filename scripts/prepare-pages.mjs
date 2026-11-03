@@ -1,0 +1,139 @@
+#!/usr/bin/env node
+// Canonical application source: dist/. Generated GitHub Pages source: docs/.
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const source = path.join(root, 'dist');
+const destination = path.join(root, 'docs');
+const markerName = '.generated-by-ecoplant';
+const generator = 'ecoplant-github-pages';
+const allowedExtensions = new Set(['.html', '.js', '.mjs', '.css', '.json', '.webmanifest', '.png', '.jpg', '.jpeg', '.webp', '.svg', '.ico', '.gif', '.avif', '.woff', '.woff2', '.ttf', '.otf', '.txt', '.xml', '.wasm', '.bin']);
+
+function assertRelative(relative) {
+  if (!relative || relative.startsWith('/') || relative.includes('\\') || relative.split('/').some(part => !part || part === '.' || part === '..')) {
+    throw new Error(`Caminho gerado inválido: ${relative}`);
+  }
+  return relative;
+}
+
+function excluded(name) {
+  return name.startsWith('.') || /^(?:node_modules|credentials?|secrets?|service[-_]?accounts?|firebase-admin)(?:[._-]|$)/i.test(name) || /\.(?:pem|key|p12|pfx|map)$/i.test(name);
+}
+
+async function statIfPresent(file) {
+  try { return await fs.lstat(file); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
+async function collect(directory, prefix = '') {
+  const files = new Map();
+  for (const entry of (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (excluded(entry.name)) continue;
+    if (entry.isSymbolicLink()) throw new Error(`Links simbólicos não são copiados: ${prefix}${entry.name}`);
+    const relative = assertRelative(prefix + entry.name);
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      for (const [name, contents] of await collect(absolute, relative + '/')) files.set(name, contents);
+    } else if (entry.isFile() && allowedExtensions.has(path.extname(entry.name).toLowerCase())) {
+      files.set(relative, await fs.readFile(absolute));
+    }
+  }
+  return files;
+}
+
+async function ensureSafeParents(relative) {
+  let directory = destination;
+  for (const part of relative.split('/').slice(0, -1)) {
+    directory = path.join(directory, part);
+    const stat = await statIfPresent(directory);
+    if (stat && (!stat.isDirectory() || stat.isSymbolicLink())) throw new Error(`Pasta de saída inválida: ${directory}`);
+    if (!stat) await fs.mkdir(directory);
+  }
+}
+
+async function inspectParents(relative) {
+  let directory = destination;
+  for (const part of relative.split('/').slice(0, -1)) {
+    directory = path.join(directory, part);
+    const stat = await statIfPresent(directory);
+    if (stat && (!stat.isDirectory() || stat.isSymbolicLink())) throw new Error(`Pasta de saída inválida: ${directory}`);
+  }
+}
+
+async function main() {
+  const files = await collect(source);
+  for (const required of ['index.html', 'app.js', 'firebase.js', 'local-db.js', 'pwa.js', 'sw.js', 'styles.css', 'manifest.webmanifest']) {
+    if (!files.has(required)) throw new Error(`Arquivo necessário ausente em dist/: ${required}`);
+  }
+  const manifest = JSON.parse(files.get('manifest.webmanifest').toString('utf8'));
+  if (manifest.start_url !== './' || manifest.scope !== './' || manifest.id !== './') {
+    throw new Error('O manifest deve usar id, start_url e scope relativos (./) para a publicação em /ecoplant/.');
+  }
+  for (const icon of manifest.icons || []) {
+    if (!icon.src?.startsWith('./') || !files.has(assertRelative(icon.src.slice(2)))) throw new Error(`Ícone local ausente ou absoluto: ${icon.src}`);
+  }
+  const rulesPath = path.join(root, 'setup', 'database.rules.json');
+  const rules = await fs.readFile(rulesPath);
+  JSON.parse(rules.toString('utf8'));
+  files.set('assets/database.rules.json', rules);
+  files.set('.nojekyll', Buffer.from(''));
+
+  const destinationStat = await statIfPresent(destination);
+  if (destinationStat && (!destinationStat.isDirectory() || destinationStat.isSymbolicLink())) throw new Error('docs/ precisa ser uma pasta comum, sem link simbólico.');
+  const markerPath = path.join(destination, markerName);
+  const markerStat = await statIfPresent(markerPath);
+  let previous = new Set();
+  if (markerStat) {
+    if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('Marcador de docs/ inválido.');
+    const marker = JSON.parse(await fs.readFile(markerPath, 'utf8'));
+    if (marker.generator !== generator || marker.schemaVersion !== 1 || !Array.isArray(marker.files)) throw new Error('docs/ não pertence ao gerador do Ecoplant.');
+    previous = new Set(marker.files.map(assertRelative));
+  } else if (destinationStat && (await fs.readdir(destination)).length) {
+    throw new Error('docs/ já contém arquivos sem o marcador do Ecoplant. Revise essa pasta manualmente antes de gerar; nenhum arquivo foi removido.');
+  }
+
+  for (const relative of files.keys()) {
+    await inspectParents(relative);
+    const existing = await statIfPresent(path.join(destination, relative));
+    if (existing && (!previous.has(relative) || !existing.isFile() || existing.isSymbolicLink())) {
+      throw new Error(`O gerador não vai sobrescrever um arquivo não gerenciado: docs/${relative}`);
+    }
+  }
+  // Validate all stale paths before removing even one of them.
+  for (const relative of previous) {
+    await inspectParents(relative);
+    const existing = await statIfPresent(path.join(destination, relative));
+    if (existing && (!existing.isFile() || existing.isSymbolicLink())) throw new Error(`Saída gerenciada inválida: docs/${relative}`);
+  }
+
+  const staging = await fs.mkdtemp(path.join(root, '.ecoplant-pages-'));
+  try {
+    for (const [relative, contents] of files) {
+      const stagedPath = path.join(staging, relative);
+      await fs.mkdir(path.dirname(stagedPath), { recursive: true });
+      await fs.writeFile(stagedPath, contents);
+    }
+    await fs.mkdir(destination, { recursive: true });
+    for (const relative of files.keys()) {
+      await ensureSafeParents(relative);
+      await fs.rename(path.join(staging, relative), path.join(destination, relative));
+    }
+    for (const relative of previous) {
+      if (!files.has(relative)) await fs.rm(path.join(destination, relative), { force: true });
+    }
+    const marker = { generator, schemaVersion: 1, source: 'dist', files: [...files.keys()].sort() };
+    const stagedMarker = path.join(staging, markerName);
+    await fs.writeFile(stagedMarker, JSON.stringify(marker, null, 2) + '\n');
+    await fs.rename(stagedMarker, markerPath);
+    process.stdout.write(`Ecoplant: ${files.size} arquivos preparados em docs/. Publique main /docs no GitHub Pages.\n`);
+  } finally {
+    await fs.rm(staging, { recursive: true, force: true });
+  }
+}
+
+main().catch(error => {
+  process.stderr.write(`Não foi possível preparar o GitHub Pages: ${error.message}\n`);
+  process.exitCode = 1;
+});
