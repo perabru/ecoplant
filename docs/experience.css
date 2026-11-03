@@ -58,3 +58,5 @@
 @media(max-width:480px){.eco-splash-logo{font-size:59px}.eco-splash-content{margin-top:-25px}.eco-loading-card{padding-top:31px}.eco-splash-tagline{font-size:11px}}
 @media(prefers-reduced-motion:reduce){.eco-splash,.eco-loading-card{transition:none!important;animation:none!important}.eco-blade{animation:none!important}.eco-honeycomb>span{animation:none!important;opacity:1;transform:none}}
 @media print{.eco-splash,.eco-loading-overlay{display:none!important}}
+
+.eco-splash-logo-image{display:inline-block;width:64px;height:64px;object-fit:contain;vertical-align:middle;margin:-9px 15px 0 0;border-radius:13px}.eco-loading-detail{display:inline-flex;align-items:center;justify-content:center;gap:9px}.eco-loading-detail img{width:26px;height:26px;object-fit:contain;border-radius:6px}@media(max-width:480px){.eco-splash-logo-image{width:58px;height:58px;margin-right:12px}}

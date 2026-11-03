@@ -69,7 +69,7 @@ export function initExperience() {
   splash.setAttribute('aria-live', 'polite');
   splash.setAttribute('aria-atomic', 'true');
   splash.setAttribute('aria-label', 'Ecoplant iniciando');
-  splash.innerHTML = `<div class="eco-splash-content">${plantHTML()}<h1 class="eco-splash-logo">Ecoplant<span aria-hidden="true">.</span></h1><p class="eco-splash-tagline">Cada folha, uma história.</p><div class="eco-splash-progress">${loaderHTML({small:true})}<span class="eco-splash-status">Preparando seu jardim…</span></div><div class="eco-splash-recovery" hidden><p>A abertura está demorando mais que o esperado.</p><button type="button" class="eco-experience-retry">Tentar novamente</button><button type="button" class="eco-experience-continue">Continuar sem aguardar</button></div></div>`;
+  splash.innerHTML = `<div class="eco-splash-content">${plantHTML()}<h1 class="eco-splash-logo"><img class="eco-splash-logo-image" src="./assets/ecoplant-logo.png" width="64" height="64" alt="">Ecoplant<span aria-hidden="true">.</span></h1><p class="eco-splash-tagline">Cada folha, uma história.</p><div class="eco-splash-progress">${loaderHTML({small:true})}<span class="eco-splash-status">Preparando seu jardim…</span></div><div class="eco-splash-recovery" hidden><p>A abertura está demorando mais que o esperado.</p><button type="button" class="eco-experience-retry">Tentar novamente</button><button type="button" class="eco-experience-continue">Continuar sem aguardar</button></div></div>`;
   splash.querySelector('.eco-experience-retry').addEventListener('click', () => location.reload());
   splash.querySelector('.eco-experience-continue').addEventListener('click', dismissSplash);
   splashFallback = setTimeout(() => {
@@ -88,7 +88,7 @@ export function initExperience() {
   }
   loading.className = 'eco-loading-overlay';
   loading.hidden = true;
-  loading.innerHTML = `<div class="eco-loading-card" role="status" aria-live="polite" aria-atomic="true">${loaderHTML()}<p class="eco-loading-message">Só um instante…</p><span class="eco-loading-detail">Ecoplant</span></div>`;
+  loading.innerHTML = `<div class="eco-loading-card" role="status" aria-live="polite" aria-atomic="true">${loaderHTML()}<p class="eco-loading-message">Só um instante…</p><span class="eco-loading-detail"><img src="./assets/ecoplant-logo.png" width="26" height="26" alt="">Ecoplant</span></div>`;
   syncBusy();
 }
 

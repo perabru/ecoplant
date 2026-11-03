@@ -1,4 +1,4 @@
-<p align="center"><img src="dist/assets/icon-192.png" width="88" alt="Ecoplant"></p>
+<p align="center"><img src="dist/assets/ecoplant-icon-192.png" width="88" alt="Ecoplant"></p>
 <h1 align="center">Ecoplant</h1>
 <p align="center"><strong>Cada folha, uma história.</strong><br>Um jardim organizado. Um olhar atento. Registros que acompanham o tempo.</p>
 <p align="center"><a href="https://perabru.github.io/ecoplant/">Abrir aplicativo</a> · <a href="setup/README-GITHUB-PAGES.md">Publicação</a> · <a href="setup/README-FIREBASE.md">Configurar Firebase</a> · <a href="setup/Ecoplant_Regras_Para_Copiar.txt">Copiar regras do banco</a></p>

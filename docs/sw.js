@@ -1,5 +1,5 @@
 /* App shell only. Firebase user records remain in the UID-scoped IndexedDB store. */
-const VERSION = 'v5-ecoplant-report-export';
+const VERSION = 'v6-ecoplant-logo';
 const PREFIX = 'ecoplant-';
 const SHELL_CACHE = `${PREFIX}shell-${VERSION}`;
 const SDK_CACHE = `${PREFIX}sdk-${VERSION}`;
@@ -7,8 +7,8 @@ const BASE = new URL('./', self.location.href);
 const SHELL_FILES = [
   './', './index.html', './styles.css', './app.js', './firebase.js',
   './local-db.js', './pwa.js', './triage.js', './classifier.js', './report.js', './theme.js', './theme.css', './experience.js', './experience.css', './manifest.webmanifest',
-  './assets/icon-192.png', './assets/icon-512.png', './assets/maskable-512.png',
-  './assets/apple-touch-icon.png', './assets/favicon.svg', './assets/garden.svg'
+  './assets/ecoplant-icon-192.png', './assets/ecoplant-icon-512.png', './assets/ecoplant-maskable-512.png',
+  './assets/ecoplant-apple-touch-180.png', './assets/favicon-32.png', './assets/favicon-64.png', './assets/favicon.ico', './assets/ecoplant-logo.png', './assets/garden.svg'
 ];
 const STATIC_URLS = new Set(SHELL_FILES.map(file => new URL(file, BASE).href));
 const SDK_FILES = ['app', 'auth', 'database'].map(name => `https://www.gstatic.com/firebasejs/13.2.0/firebase-${name}.js`);
