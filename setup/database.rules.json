@@ -102,7 +102,7 @@
               "result": {
                 ".validate": "newData.hasChildren(['method'])",
                 "method": {
-                  ".validate": "newData.isString() && (newData.val() == 'teachable-machine' || newData.val() == 'guided')"
+                  ".validate": "newData.isString() && (newData.val() == 'teachable-machine' || newData.val() == 'plant-ai' || newData.val() == 'guided')"
                 },
                 "title": {
                   ".validate": "newData.isString() && newData.val().length <= 400"

@@ -1,0 +1,90 @@
+EcoPlant IA — model attribution, fixed artifacts and limitations
+==============================================================
+
+EcoPlant integrates an existing open model. The model was not trained by
+EcoPlant. The photo is processed locally by ONNX Runtime Web; the inference
+module downloads public model files and does not upload the photo.
+
+MODEL
+Author: Rodayna Emad Mohamed (rodynaemad)
+Title: Plant Disease Classifier (DINOv2-small + linear head)
+Source: https://huggingface.co/rodynaemad/plant-disease-dinov2-small
+Revision: 06ebf5e308e100fd000d738c42b059ebb5f58a16
+License declared by the author: Creative Commons Attribution-ShareAlike 4.0
+License text: https://creativecommons.org/licenses/by-sa/4.0/legalcode
+Model card: https://huggingface.co/rodynaemad/plant-disease-dinov2-small/blob/06ebf5e308e100fd000d738c42b059ebb5f58a16/README.md
+Backbone: facebook/dinov2-small (Apache License 2.0)
+Dataset: PlantVillage, by Mohanty and collaborators
+Dataset source: https://github.com/spMohanty/PlantVillage-Dataset
+
+Downloaded model (unchanged, author's INT8 ONNX export):
+  onnx/model_with_features_quantized.onnx
+  24,231,170 bytes
+  SHA-256: 907fe4ed9d5f3fa6f6f6a9321a4564766e5136a2f316a2b23c930c3bfa13d72b
+
+OUT-OF-DISTRIBUTION CHECK / PREPROCESSING
+Source demo by the same author:
+  https://huggingface.co/spaces/rodynaemad/plant-disease-scanner
+Revision: b26e704bd72c2fe05632ea6f7be680a2eca0d8f5
+License declared by the author: Creative Commons Attribution-ShareAlike 4.0
+Source files: index.html, meta.json, centroids.f32
+
+Downloaded centroids (unchanged):
+  centroids.f32
+  116,736 bytes (38 normalized class centroids × 768 float32 values)
+  SHA-256: e873c9330db03dddf31e1f73db8fcb0bc4a186b69ff4d944aaec703beeeb5e51
+
+The exact 38-label order and OOD threshold (0.699429452419281) from the
+pinned meta.json are embedded in plant-ai.js. Labels match the pinned model's
+config.json id2label. Both binary downloads are verified by length and SHA-256.
+Reference meta.json SHA-256:
+  5b3de22ed4a87c482a204766f34c5641b7921d319eb56c09b3c448f83bb769b8
+Reference config.json SHA-256:
+  d25b5b7e0d596e35cde57d24f82f0c041b0c4568cc90ec281d92cba56f78a1fd
+
+Preprocessing follows the author's browser demo: resize the shorter side to
+256 pixels, center-crop 224×224, RGB float32 in NCHW order, divide by 255,
+then normalize with means [0.485, 0.456, 0.406] and deviations
+[0.229, 0.224, 0.225]. Input: pixel_values [1,3,224,224].
+Outputs: logits [1,38], features [1,768]. Probabilities are computed by
+stable softmax of the logits. OOD uses the maximum cosine similarity of
+the 768-dimensional feature vector to the author's normalized centroids.
+
+ECOPLANT INTEGRATION CHANGES
+The binary model and centroids are not modified. EcoPlant adds Portuguese
+presentation, verified downloads, bounded retries, cancellation, local
+session caching, safe resource disposal, and neutral inconclusive reports.
+An OOD result omits disease classes and confidence scores. EcoPlant also
+abstains when the highest class probability is below 0.5. This extra 0.5
+threshold is an application policy, not a scientifically calibrated guarantee.
+
+RUNTIME
+ONNX Runtime Web 1.30.0, by Microsoft and contributors, MIT License.
+Source: https://github.com/microsoft/onnxruntime
+Package: https://www.npmjs.com/package/onnxruntime-web/v/1.30.0
+Pinned CDN: https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/
+Execution provider: WASM, one thread (no cross-origin-isolation requirement).
+
+SCOPE AND LIMITATIONS
+The model recognizes 38 crop–condition classes in 14 crops: apple,
+blueberry, cherry, maize, grape, orange, peach, bell pepper, potato,
+raspberry, soybean, squash, strawberry and tomato.
+
+The training data shows single detached leaves under controlled conditions.
+Outdoor backgrounds, other species, several leaves, roots, stems, lighting,
+nutrient problems and conditions absent from training can produce errors.
+OOD rejection reduces forced guesses but does not detect every unsupported
+image. A high softmax score is a preference among known classes, not a
+probability that a disease is confirmed or that a whole plant is healthy.
+Published test-set accuracy is not used as a per-photo confidence value.
+The output is preliminary and does not prescribe pesticides or treatment.
+
+VERIFICATION
+The unchanged public INT8 model was loaded and executed using ONNX Runtime
+Web 1.30.0 WASM on CPU. The production preprocessing and classification path
+identified two official PlantVillage examples consistently with their folder
+labels (Tomato___healthy and Apple___Apple_scab) and rejected an EcoPlant logo
+as inconclusive. Uniform white and green inputs were also rejected by OOD.
+These are functional checks, not an independent accuracy assessment: the
+leaf examples may have been used in training. Unit tests use explicit mocks
+and do not claim to validate the trained weights or recognition accuracy.

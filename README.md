@@ -11,9 +11,11 @@ PWA em português para registrar plantas, fotografar folhas e acompanhar sua evo
 - Firebase Realtime Database com registros separados por UID e regras de validação.
 - Cadastro, edição e exclusão de plantas, fotos reduzidas no navegador e histórico.
 - Câmera ao vivo com alternância frontal/traseira e alternativa de câmera nativa/galeria.
+- IA de imagem pronta para uso no navegador, sem chave de API, com modelo aberto DINOv2/PlantVillage e verificação de imagens fora do conjunto.
 - Suporte a modelos de imagem do Teachable Machine por link hospedado, arquivos selecionados no navegador ou pasta `./my_model/` do aplicativo.
-- Relatório animado com classes e probabilidades quando um modelo é carregado, observações, dados da planta e impressão em PDF.
-- Triagem manual por sinais, claramente identificada quando não há modelo conectado.
+- Relatório que abre dentro do aplicativo, com foto, resultado real da IA, observações, salvamento no histórico e botão direto Imprimir / PDF.
+- Relatório de observação sem IA, com sinais opcionais e registro fotográfico mesmo sem planta cadastrada.
+- Rascunho do relatório preservado na aba por UID, inclusive após recarregar; nova análise não reaproveita os sinais de outra planta.
 - Modo local explícito com IndexedDB, exportação JSON e consulta offline do último conteúdo carregado.
 - Manifest, ícones, Service Worker e instalação Android/iOS.
 - Tema claro e escuro com preferência salva, botão de semente/planta e respeito à preferência inicial do aparelho.
@@ -40,7 +42,19 @@ Em um banco usado por outros aplicativos, combine as regras preservando os outro
 
 Autorize `perabru.github.io` em Authentication → Configurações → Domínios autorizados. O endereço é apenas o host, sem `https://` e sem `/ecoplant/`. Se continuar utilizando a publicação anterior, mantenha também `ecoplant-bruno.perabru.chatgpt.site`.
 
-## Conectar o Teachable Machine
+## Gerar o relatório e usar a IA
+
+Abra **Analisar planta**, envie uma foto e toque em **Analisar com IA e gerar relatório**. Vincular a foto a uma planta cadastrada é opcional. O relatório aparece no aplicativo; use **Salvar no histórico** para guardá-lo e **Imprimir / PDF** para exportar. Na ficha de uma planta, **Gerar relatório com esta foto** usa a imagem cadastrada; **Analisar uma nova foto** limpa o contexto anterior.
+
+A opção **Relatório de observação — sem IA** também funciona sem marcar sinais: nesse caso, gera um registro fotográfico neutro, sem hipótese de doença ou afirmação de saúde. Falhas na IA nunca acionam essa opção silenciosamente.
+
+A IA de imagem usa o modelo aberto [rodynaemad/plant-disease-dinov2-small](https://huggingface.co/rodynaemad/plant-disease-dinov2-small), de Rodayna Emad Mohamed, treinado no [PlantVillage](https://huggingface.co/datasets/mohanty/PlantVillage). A exportação ONNX int8 tem cerca de 24 MB e é executada por ONNX Runtime Web 1.30.0 em WebAssembly. A primeira utilização exige internet para baixar o modelo e o mecanismo de processamento; nenhuma chave ou treinamento próprio é necessário. A foto é processada no navegador. A opção de salvar mantém o armazenamento habitual do aplicativo: conta Firebase ou modo local.
+
+**Limites:** são 38 classes de 14 culturas, aprendidas principalmente em imagens de folhas isoladas. Não é um classificador universal de plantas nem confirmação de doença. O verificador de similaridade com o treinamento pode produzir **Análise inconclusiva** para imagens fora desse conjunto; nesses casos, o relatório não apresenta uma doença nem uma porcentagem de confiança. Esse filtro não garante rejeitar toda imagem inadequada. Os valores do conjunto de teste publicados pelo autor não equivalem a desempenho em fotos de campo.
+
+O modelo é distribuído pelo autor sob **CC BY-SA 4.0**; o backbone DINOv2 usa **Apache 2.0**. O EcoPlant mantém a atribuição e utiliza artefatos com versão e integridade verificadas. As imagens de teste funcionais do PlantVillage não são adicionadas ao site e não constituem uma avaliação independente de acurácia.
+
+## Conectar seu Teachable Machine (opcional)
 
 Treine um projeto de **imagem**, com pelo menos duas classes, e reserve imagens novas para avaliação. Exporte em **TensorFlow.js** e escolha uma das opções:
 
@@ -50,7 +64,7 @@ Treine um projeto de **imagem**, com pelo menos duas classes, e reserve imagens 
 
 Para modelos hospedados ou empacotados, opcionalmente informe o nome exato da classe saudável; o aplicativo confere se ela existe no modelo. Relatórios de arquivos importados preservam os nomes e as probabilidades das classes, sem reinterpretá-los pelas configurações de uma importação posterior. O HTML de exemplo fornecido pelo Teachable Machine **não contém os pesos treinados** e não substitui os arquivos exportados.
 
-A pasta está preparada, mas **nenhum modelo real está incluído neste repositório**. Para concluir a conexão e avaliar o reconhecimento, é necessário fornecer o ZIP exportado em TensorFlow.js ou a URL pública do modelo. Enquanto isso, a identificação automática fica desabilitada e não tenta baixar arquivos ausentes. A triagem por sinais só é executada quando escolhida pelo usuário.
+A pasta `my_model` está preparada, mas **o treinamento próprio do EcoPlant ainda não foi fornecido**. A opção de modelo empacotado permanece desabilitada até a exportação completa ser adicionada. Isso não afeta a IA pronta para uso descrita acima. Não são feitas tentativas de baixar os arquivos ausentes.
 
 `npm run prepare:pages` gera `dist/model-config.js` e sua cópia publicada com a disponibilidade real do modelo. A preparação só habilita o modelo do EcoPlant quando todos os arquivos do manifesto estão presentes; um pacote parcial ou inválido interrompe a publicação.
 
@@ -69,7 +83,7 @@ Câmera ao vivo e Service Worker exigem um contexto seguro HTTPS. A consulta off
 
 `npm run check` verifica a sintaxe dos scripts, os contratos das regras Firebase, o carregamento/classificação/cancelamento com mocks explícitos e a estabilidade dos relatórios de modelos importados. Essas verificações não substituem o simulador/emulador de regras nem confirmam uma publicação no Firebase.
 
-As verificações anteriores da interface cobriram os fluxos locais de cadastro, foto, triagem, relatório, perfil e reabertura, incluindo um viewport de 390 pixels. Isso não valida o reconhecimento com os novos métodos de carregamento: **não foram realizados testes reais de reconhecimento de plantas**, pois o modelo treinado ainda precisa ser fornecido. Login e isolamento em produção também dependem dos provedores habilitados, das regras publicadas e da validação no ambiente real.
+Os testes estruturais cobrem relatórios com e sem planta cadastrada, registro sem sinais, resultado de IA inconclusivo, sanitização, botão de PDF e contratos do banco. A integração ONNX também é verificada com os pesos reais em WASM e imagens conhecidas do PlantVillage; esses testes funcionais não medem desempenho em campo. Login e isolamento em produção dependem dos provedores habilitados e das regras publicadas. A regra de `result.method` aceita `plant-ai`, `teachable-machine` e `guided`, sem mudar a exigência de autenticação e UID próprio.
 
 ## GitHub Pages
 
@@ -83,7 +97,7 @@ npm run prepare:pages
 
 Inclua as alterações de `dist/` e `docs/` no mesmo commit. Não é necessário instalar dependências para gerar a pasta: o script usa apenas Node.js. A publicação respeita o caminho `/ecoplant/`, incluindo os ícones, o manifest e o Service Worker.
 
-Aplicativo estático, sem servidor próprio. Arquivos externos usados: Firebase JS SDK 13.2.0, TensorFlow.js 4.22.0, Teachable Machine Image 0.8.5 e fontes Google. A configuração web do Firebase é pública; as regras e a autenticação controlam os registros. Não incluir chaves de conta de serviço no código público.
+Aplicativo estático, sem servidor próprio. Arquivos externos usados: Firebase JS SDK 13.2.0, TensorFlow.js 4.22.0, Teachable Machine Image 0.8.5, ONNX Runtime Web 1.30.0, modelo DINOv2/PlantVillage e fontes Google. A configuração web do Firebase é pública; as regras e a autenticação controlam os registros. Não incluir chaves de conta de serviço no código público.
 
 ## Estrutura do repositório
 

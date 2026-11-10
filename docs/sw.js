@@ -1,12 +1,12 @@
 /* App shell only. Firebase user records remain in the UID-scoped IndexedDB store. */
-const VERSION = 'v9-ecoplant-model-recovery';
+const VERSION = 'v10-ecoplant-ai-reports';
 const PREFIX = 'ecoplant-';
 const SHELL_CACHE = `${PREFIX}shell-${VERSION}`;
 const SDK_CACHE = `${PREFIX}sdk-${VERSION}`;
 const BASE = new URL('./', self.location.href);
 const SHELL_FILES = [
   './', './index.html', './styles.css', './app.js', './firebase.js',
-  './local-db.js', './pwa.js', './triage.js', './model-config.js', './classifier.js', './report.js', './theme.js', './theme.css', './experience.js', './experience.css', './manifest.webmanifest',
+  './local-db.js', './pwa.js', './triage.js', './model-config.js', './classifier.js', './plant-ai.js', './report.js', './theme.js', './theme.css', './experience.js', './experience.css', './manifest.webmanifest',
   './assets/ecoplant-icon-192.png', './assets/ecoplant-icon-512.png', './assets/ecoplant-maskable-512.png',
   './assets/ecoplant-apple-touch-180.png', './assets/favicon-32.png', './assets/favicon-64.png', './assets/favicon.ico', './assets/ecoplant-logo.png', './assets/garden.svg'
 ];

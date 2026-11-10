@@ -30,7 +30,15 @@ for(const modelURL of ['local:ecoplant-model','https://perabru.github.io/ecoplan
   base.analyses.a1.result={...tm,modelURL};
   assert(validate(userRules,base,{$uid:'u1'}),'imported and bundled reports must fit the existing Firebase schema');
 }
-base.analyses.a1.result=tm;
+base.analyses.a1.result={...tm,method:'plant-ai',modelName:'EcoPlant IA · DINOv2 PlantVillage',modelURL:'https://huggingface.co/rodynaemad/plant-disease-dinov2-small',summary:'Resultado de teste estrutural',care:['Observe a evolução da folha.'],severity:'observe',disclaimer:'Teste de contrato; nenhuma inferência real.'};
+assert(validate(userRules,base,{$uid:'u1'}),'plant-ai report must validate without changing ownership rules');
+delete base.analyses.a1.result.confidence;delete base.analyses.a1.result.predictions;
+base.analyses.a1.result.topClass='Análise inconclusiva';base.analyses.a1.plantId='';
+assert(validate(userRules,base,{$uid:'u1'}),'inconclusive standalone photo report must validate');
+base.analyses.a1.result={...tm,method:'unknown-ai'};
+assert(!validate(userRules,base,{$uid:'u1'}),'unknown analysis methods must remain rejected');
+assert.equal(userRules['.write'],'auth != null && auth.uid == $uid');
+base.analyses.a1.plantId='p1';base.analyses.a1.result=tm;
 assert(!validate(userRules,'bad',{$uid:'u1'}));
 assert(!validate(userRules,{...base,plants:'bad'},{$uid:'u1'}));
 assert(!validate(userRules,{...base,profile:{email:'teste@example.com'}},{$uid:'u1'}));

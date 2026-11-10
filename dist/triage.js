@@ -77,8 +77,9 @@ export function evaluateSymptoms(selectedIds) {
   if (selected.size === 0) {
     return {
       ...common,
-      title: 'Sinais insuficientes',
-      summary: 'Selecione os sinais que observou para receber uma triagem guiada.',
+      title: 'Registro fotográfico',
+      summary: 'A foto foi registrada para acompanhamento. Nenhum sinal foi informado e a imagem não foi analisada automaticamente.',
+      disclaimer: 'Registro fotográfico sem análise por IA. Nenhuma hipótese de doença foi atribuída. A foto e as observações servem para acompanhar a evolução da planta.',
       possibilities: [], care: BASE_CARE, severity: 'observe'
     };
   }
