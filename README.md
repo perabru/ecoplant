@@ -11,8 +11,8 @@ PWA em português para registrar plantas, fotografar folhas e acompanhar sua evo
 - Firebase Realtime Database com registros separados por UID e regras de validação.
 - Cadastro, edição e exclusão de plantas, fotos reduzidas no navegador e histórico.
 - Câmera ao vivo com alternância frontal/traseira e alternativa de câmera nativa/galeria.
-- Integração real com um modelo de imagem publicado no Teachable Machine.
-- Relatório animado com classes, probabilidades reais, observações, dados da planta e impressão em PDF.
+- Suporte a modelos de imagem do Teachable Machine por link hospedado, arquivos selecionados no navegador ou pasta `./my_model/` do aplicativo.
+- Relatório animado com classes e probabilidades quando um modelo é carregado, observações, dados da planta e impressão em PDF.
 - Triagem manual por sinais, claramente identificada quando não há modelo conectado.
 - Modo local explícito com IndexedDB, exportação JSON e consulta offline do último conteúdo carregado.
 - Manifest, ícones, Service Worker e instalação Android/iOS.
@@ -42,13 +42,17 @@ Autorize `perabru.github.io` em Authentication → Configurações → Domínios
 
 ## Conectar o Teachable Machine
 
-1. Treine um projeto de **imagem**, com pelo menos duas classes e diferentes folhas, fundos e iluminações.
-2. Separe imagens novas para avaliar o modelo.
-3. Exporte em **TensorFlow.js → Fazer upload**.
-4. Em **Meu perfil → Teachable Machine**, cole `https://teachablemachine.withgoogle.com/models/ID/`.
-5. Opcionalmente informe o nome exato da classe saudável. O aplicativo confere se ela existe no modelo.
+Treine um projeto de **imagem**, com pelo menos duas classes, e reserve imagens novas para avaliação. Exporte em **TensorFlow.js** e escolha uma das opções:
 
-Nenhum modelo padrão ou resultado fictício está incluído. A confiança expressa a escolha entre as classes treinadas e não mede a saúde ou a gravidade de uma condição. O processamento da imagem acontece no navegador, pelo modelo publicado. Pesos e bibliotecas precisam ser baixados com internet.
+- **Link hospedado:** use **Fazer upload** no Teachable Machine e cole o endereço `https://teachablemachine.withgoogle.com/models/ID/` em **Perfil → Teachable Machine**.
+- **Arquivos do modelo:** use a exportação para download e, em **Perfil → Teachable Machine → Arquivos do modelo**, selecione juntos `model.json`, `metadata.json` e `weights.bin` — ou o nome do arquivo `.bin` declarado no manifesto de `model.json`. Esta opção aceita um único arquivo de pesos `.bin`. A seleção vale apenas para a sessão/aba e deve ser repetida após recarregar a página. Os arquivos selecionados não são enviados ao Firebase.
+- **Modelo empacotado:** coloque os mesmos três arquivos em `dist/my_model/`. A fonte principal é `dist/`; execute `npm run prepare:pages` para copiá-los para `docs/my_model/`. No site, o modelo fica disponível pelo caminho relativo `./my_model/`.
+
+Para modelos hospedados ou empacotados, opcionalmente informe o nome exato da classe saudável; o aplicativo confere se ela existe no modelo. Relatórios de arquivos importados preservam os nomes e as probabilidades das classes, sem reinterpretá-los pelas configurações de uma importação posterior. O HTML de exemplo fornecido pelo Teachable Machine **não contém os pesos treinados** e não substitui os arquivos exportados.
+
+A pasta está preparada, mas **nenhum modelo real está incluído neste repositório**. Para concluir a conexão e avaliar o reconhecimento, é necessário fornecer o ZIP exportado em TensorFlow.js ou a URL pública do modelo.
+
+O processamento da imagem acontece no navegador. As bibliotecas e os modelos hospedados precisam ser baixados com internet. A confiança expressa a escolha entre as classes treinadas e não mede a saúde nem a gravidade de uma condição. O salvamento dos dados e relatórios mantém o fluxo atual do aplicativo: Firebase para a conta ou armazenamento do navegador no modo local.
 
 ## Instalar
 
@@ -59,9 +63,9 @@ Câmera ao vivo e Service Worker exigem um contexto seguro HTTPS. A consulta off
 
 ## Verificação
 
-`node tests/check-firebase-rules.mjs` confere a sintaxe das expressões e os contratos das estruturas. Não substitui o simulador/emulador de regras nem confirma uma publicação no Firebase.
+`npm run check` verifica a sintaxe dos scripts, os contratos das regras Firebase, o carregamento/classificação/cancelamento com mocks explícitos e a estabilidade dos relatórios de modelos importados. Essas verificações não substituem o simulador/emulador de regras nem confirmam uma publicação no Firebase.
 
-Os fluxos locais de cadastro, foto, triagem, relatório, perfil e reabertura foram verificados na interface, incluindo um viewport de 390 pixels. O login real, o isolamento em produção e o modelo de plantas dependem respectivamente dos provedores habilitados, da publicação das regras e do modelo do responsável.
+As verificações anteriores da interface cobriram os fluxos locais de cadastro, foto, triagem, relatório, perfil e reabertura, incluindo um viewport de 390 pixels. Isso não valida o reconhecimento com os novos métodos de carregamento: **não foram realizados testes reais de reconhecimento de plantas**, pois o modelo treinado ainda precisa ser fornecido. Login e isolamento em produção também dependem dos provedores habilitados, das regras publicadas e da validação no ambiente real.
 
 ## GitHub Pages
 
@@ -82,6 +86,7 @@ Aplicativo estático, sem servidor próprio. Arquivos externos usados: Firebase 
 | Pasta | Uso |
 | --- | --- |
 | `dist/` | Código do aplicativo |
+| `dist/my_model/` | Destino dos arquivos exportados do modelo; pesos ainda não fornecidos |
 | `docs/` | Arquivos publicados no GitHub Pages |
 | `setup/` | Regras e instruções de configuração |
 | `scripts/` | Preparação da publicação |

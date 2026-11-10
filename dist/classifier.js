@@ -1,14 +1,19 @@
 /**
- * Real inference for a user's published Teachable Machine IMAGE model.
+ * Real inference for a published, bundled or locally imported TM IMAGE model.
  * No default model or synthetic prediction is provided.
  * Official API: googlecreativelab/teachablemachine-community/libraries/image.
  */
 const TF_URL = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
 const TM_URL = 'https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js';
 const LOAD_TIMEOUT = 45000;
+export const BUNDLED_MODEL_URL = './my_model/';
+export const IMPORTED_MODEL_URL = 'local:ecoplant-model';
+const bundledModelURL = new URL(BUNDLED_MODEL_URL, import.meta.url).href;
 const scriptLoads = new Map();
 const models = new Map();
+const disposedModels = new WeakSet();
 let librariesPromise;
+let pendingImport;
 
 function failure(code, message, cause) {
   const error = new Error(message);
@@ -29,11 +34,21 @@ function report(callback, message, stage) {
   }
 }
 
-/** Accept only a published official TM model folder or its model.json URL. */
+function missingModelFiles(cause) {
+  return failure('model-files-missing', 'Os arquivos do modelo EcoPlant não estão disponíveis. Importe model.json, metadata.json e o arquivo de pesos .bin no Perfil, ou informe o link publicado no Teachable Machine.', cause);
+}
+
+/** Accept official TM URLs, the exact bundled folder, or an imported model in this tab. */
 export function validateModelURL(value) {
-  const invalid = () => failure('invalid-model-url', 'Cole o link HTTPS do modelo publicado no Teachable Machine, no formato https://teachablemachine.withgoogle.com/models/ID_DO_MODELO/.');
+  const invalid = () => failure('invalid-model-url', 'Use o modelo EcoPlant, importe os arquivos no Perfil ou cole o link HTTPS publicado no Teachable Machine, no formato https://teachablemachine.withgoogle.com/models/ID_DO_MODELO/.');
   if (typeof value !== 'string') throw invalid();
   const input = value.trim();
+  if (input === BUNDLED_MODEL_URL || input === bundledModelURL) return bundledModelURL;
+  if (input === IMPORTED_MODEL_URL) {
+    const loaded = models.get(IMPORTED_MODEL_URL)?.loaded;
+    if (!loaded || loaded.retired) throw missingModelFiles();
+    return IMPORTED_MODEL_URL;
+  }
   if (!input || input.length > 512 || /[%\\\s]/.test(input)) throw invalid();
   let url;
   try { url = new URL(input); } catch { throw invalid(); }
@@ -101,7 +116,7 @@ async function ensureLibraries() {
   return librariesPromise;
 }
 
-async function readJSON(url, signal, label) {
+async function readJSON(url, signal, label, source) {
   let response;
   try {
     // Published TM URLs legitimately redirect to storage.googleapis.com/tm-model/….
@@ -111,6 +126,7 @@ async function readJSON(url, signal, label) {
     throw failure('network', `Não foi possível acessar ${label}. Confira sua conexão e se o modelo foi publicado.`, error);
   }
   if (!response.ok) {
+    if (source === 'bundled' && response.status === 404) throw missingModelFiles();
     throw failure('model-unavailable', response.status === 404
       ? 'Modelo não encontrado. Exporte como TensorFlow.js, publique no Teachable Machine e confira o link.'
       : `O servidor do modelo respondeu com erro ${response.status}. Tente novamente mais tarde.`);
@@ -119,7 +135,7 @@ async function readJSON(url, signal, label) {
     const requested = new URL(url);
     const delivered = new URL(response.url);
     const canonicalPath = requested.pathname.replace(/^\/models\//, '/tm-model/');
-    if (delivered.href !== requested.href && !(delivered.origin === 'https://storage.googleapis.com'
+    if (delivered.href !== requested.href && !(source === 'hosted' && delivered.origin === 'https://storage.googleapis.com'
       && delivered.pathname === canonicalPath && !delivered.search && !delivered.hash)) {
       throw failure('invalid-model', 'O link do modelo redirecionou para um endereço inesperado. Publique novamente pelo Teachable Machine.');
     }
@@ -165,7 +181,57 @@ function abortable(promise, signal) {
   });
 }
 
+function disposeModel(model) {
+  if (!model || (typeof model !== 'object' && typeof model !== 'function') || disposedModels.has(model)) return;
+  disposedModels.add(model);
+  // TM's wrapper dispose() may reference an uninitialized truncatedModel.
+  try { model.model?.dispose?.(); } catch { /* Runtime may have disposed it already. */ }
+}
+
+function disposeWhenIdle(loaded) {
+  if (loaded.retired && loaded.inFlight === 0) disposeModel(loaded.model);
+}
+
+function retireModel(loaded) {
+  if (!loaded) return;
+  loaded.retired = true;
+  disposeWhenIdle(loaded);
+}
+
+async function verifyLoadedModel(modelPromise, entry, labels, metadata, modelURL, source) {
+  // The TM API cannot abort a weight download. Late models must still be released.
+  const pending = Promise.resolve(modelPromise);
+  pending.then(model => {
+    if (entry.controller.signal.aborted) disposeModel(model);
+  }, () => {});
+  let model;
+  try {
+    model = await abortable(pending, entry.controller.signal);
+    if (entry.controller.signal.aborted) throw entry.controller.signal.reason || cancellation();
+    if (model.getTotalClasses() !== labels.length) throw failure('invalid-model', 'O número de classes difere dos rótulos. Exporte o modelo novamente.');
+    const actualLabels = typeof model.getClassLabels === 'function' ? model.getClassLabels() : labels;
+    if (!Array.isArray(actualLabels) || actualLabels.length !== labels.length || actualLabels.some((label, i) => String(label) !== labels[i])) {
+      throw failure('invalid-model', 'As classes do modelo não correspondem aos metadados. Exporte o modelo novamente.');
+    }
+    return { model, labels, metadata, modelURL, source, inFlight: 0, retired: false };
+  } catch (error) {
+    // Includes validation failures after the underlying model allocated tensors.
+    disposeModel(model);
+    throw error;
+  }
+}
+
+function publicModelInfo(loaded) {
+  return {
+    labels: [...loaded.labels],
+    metadata: { ...loaded.metadata, labels: [...loaded.labels] },
+    modelURL: loaded.modelURL,
+    source: loaded.source
+  };
+}
+
 function createEntry(baseURL, callback) {
+  const source = baseURL === bundledModelURL ? 'bundled' : 'hosted';
   const controller = new AbortController();
   const entry = { controller, listeners: new Set(), promise: null, loaded: null };
   if (typeof callback === 'function') entry.listeners.add(callback);
@@ -173,35 +239,23 @@ function createEntry(baseURL, callback) {
   const timer = setTimeout(() => controller.abort(failure('timeout', 'O modelo demorou mais de 45 segundos para carregar. Confira a internet e tente novamente.')), LOAD_TIMEOUT);
   entry.promise = (async () => {
     try {
-      announce('Conferindo o modelo publicado…', 'checking');
+      announce(source === 'bundled' ? 'Conferindo o modelo EcoPlant…' : 'Conferindo o modelo publicado…', 'checking');
       const [metadata, topology] = await Promise.all([
-        readJSON(`${baseURL}metadata.json`, controller.signal, 'metadata.json'),
-        readJSON(`${baseURL}model.json`, controller.signal, 'model.json')
+        readJSON(`${baseURL}metadata.json`, controller.signal, 'metadata.json', source),
+        readJSON(`${baseURL}model.json`, controller.signal, 'model.json', source)
       ]);
       const labels = validateMetadata(metadata, topology);
       announce('Preparando o processamento da imagem…', 'libraries');
       await abortable(ensureLibraries(), controller.signal);
       announce('Baixando os pesos do seu modelo…', 'weights');
-      const modelPromise = globalThis.tmImage.load(`${baseURL}model.json`, metadata);
-      // tmImage.load does not expose AbortSignal. Dispose late results after cancellation.
-      modelPromise.then(lateModel => {
-        if (controller.signal.aborted) {
-          try { lateModel.model?.dispose?.(); } catch { /* Already disposed by the runtime. */ }
-        }
-      }, () => {});
-      const model = await abortable(modelPromise, controller.signal);
-      if (model.getTotalClasses() !== labels.length) throw failure('invalid-model', 'O número de classes difere dos rótulos. Publique o modelo novamente.');
-      const actualLabels = typeof model.getClassLabels === 'function' ? model.getClassLabels() : labels;
-      if (actualLabels.length !== labels.length || actualLabels.some((label, i) => String(label) !== labels[i])) {
-        throw failure('invalid-model', 'As classes do modelo não correspondem aos metadados. Publique o modelo novamente.');
-      }
-      entry.loaded = { model, labels, metadata, modelURL: baseURL };
+      entry.loaded = await verifyLoadedModel(globalThis.tmImage.load(`${baseURL}model.json`, metadata), entry, labels, metadata, baseURL, source);
       announce('Modelo pronto para identificar.', 'ready');
       return entry.loaded;
     } catch (error) {
       if (models.get(baseURL) === entry) models.delete(baseURL);
       if (controller.signal.aborted) throw controller.signal.reason || cancellation();
       if (error?.code?.startsWith('classifier/')) throw error;
+      if (source === 'bundled') throw missingModelFiles(error);
       throw failure('model-load-failed', 'Não foi possível carregar este modelo de imagem. Confira se ele foi exportado como TensorFlow.js e tente novamente.', error);
     } finally {
       clearTimeout(timer);
@@ -217,12 +271,17 @@ function createEntry(baseURL, callback) {
 async function getEntry(baseURL, callback, signal) {
   if (signal?.aborted) throw cancellation();
   let entry = models.get(baseURL);
+  if (!entry && baseURL === IMPORTED_MODEL_URL) throw missingModelFiles();
   if (!entry) entry = createEntry(baseURL, callback);
   else if (entry.loaded) report(callback, 'Modelo pronto para identificar.', 'ready');
   else if (typeof callback === 'function') entry.listeners.add(callback);
-  const onAbort = () => entry.controller.abort(cancellation());
+  const onAbort = () => { if (!entry.loaded) entry.controller.abort(cancellation()); };
   signal?.addEventListener('abort', onAbort, { once: true });
-  try { return await entry.promise; } finally {
+  try {
+    const loaded = await entry.promise;
+    if (signal?.aborted || loaded.retired) throw cancellation();
+    return loaded;
+  } finally {
     signal?.removeEventListener('abort', onAbort);
     entry.listeners.delete(callback);
   }
@@ -231,8 +290,95 @@ async function getEntry(baseURL, callback, signal) {
 /** onProgress(message, stage). Optional third argument: { signal: AbortSignal }. */
 export async function loadPlantModel(baseUrl, onProgress, options = {}) {
   const modelURL = validateModelURL(baseUrl);
-  const { labels, metadata } = await getEntry(modelURL, onProgress, options.signal);
-  return { labels: [...labels], metadata: { ...metadata }, modelURL };
+  return publicModelInfo(await getEntry(modelURL, onProgress, options.signal));
+}
+
+async function readModelFile(file, signal) {
+  if (file.size > 8 * 1024 * 1024) throw failure('invalid-model', `O arquivo ${file.name} é maior que o esperado para um modelo de imagem.`);
+  try { return JSON.parse(await abortable(file.text(), signal)); } catch (error) {
+    if (signal.aborted) throw signal.reason || cancellation();
+    throw failure('invalid-model', `O arquivo ${file.name} não contém JSON válido. Exporte novamente no formato TensorFlow.js.`, error);
+  }
+}
+
+function selectModelFiles(files) {
+  let list;
+  try { list = typeof files === 'string' ? [] : Array.from(files || []); } catch { list = []; }
+  if (list.some(file => !file || typeof file.name !== 'string' || typeof file.text !== 'function' || !Number.isFinite(file.size))) {
+    throw failure('invalid-model-files', 'Selecione os arquivos exportados pelo Teachable Machine: model.json, metadata.json e o arquivo de pesos .bin.');
+  }
+  const modelFiles = list.filter(file => file.name === 'model.json');
+  const metadataFiles = list.filter(file => file.name === 'metadata.json');
+  const weightFiles = list.filter(file => /\.bin$/i.test(file.name));
+  if (modelFiles.length > 1 || metadataFiles.length > 1) throw failure('invalid-model-files', 'Selecione apenas um model.json e um metadata.json da mesma exportação.');
+  if (weightFiles.length > 1) throw failure('multiple-weight-files', 'A importação aceita um único arquivo de pesos .bin. Para modelos com vários arquivos de pesos, publique no Teachable Machine e informe o link no Perfil.');
+  if (modelFiles.length !== 1 || metadataFiles.length !== 1 || weightFiles.length !== 1) throw missingModelFiles();
+  return { modelFile: modelFiles[0], metadataFile: metadataFiles[0], weightsFile: weightFiles[0] };
+}
+
+/** Import only into this tab's memory. No upload or browser persistence is performed. */
+export async function loadPlantModelFromFiles(files, onProgress, options = {}) {
+  if (options.signal?.aborted) throw cancellation();
+  const { modelFile, metadataFile, weightsFile } = selectModelFiles(files);
+  pendingImport?.controller.abort(cancellation());
+  const controller = new AbortController();
+  const entry = { controller, listeners: new Set(), promise: null, loaded: null };
+  pendingImport = entry;
+  const onAbort = () => controller.abort(cancellation());
+  options.signal?.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(failure('timeout', 'O modelo demorou mais de 45 segundos para carregar. Confira os arquivos e tente novamente.')), LOAD_TIMEOUT);
+  entry.promise = (async () => {
+    try {
+      report(onProgress, 'Conferindo os arquivos do modelo…', 'checking');
+      const [topology, metadata] = await Promise.all([
+        readModelFile(modelFile, controller.signal), readModelFile(metadataFile, controller.signal)
+      ]);
+      const labels = validateMetadata(metadata, topology);
+      if (typeof options.healthyClass === 'string' && options.healthyClass.trim() && !labels.includes(options.healthyClass)) {
+        const error = failure('invalid-healthy-class', `A classe saudável deve corresponder exatamente a uma classe do modelo. Classes disponíveis: ${labels.join(' · ')}.`);
+        error.labels = [...labels];
+        throw error;
+      }
+      const paths = topology.weightsManifest.flatMap(group => group.paths);
+      if (paths.length !== 1) throw failure('multiple-weight-files', 'Este modelo usa vários arquivos de pesos. Publique-o no Teachable Machine e informe o link no Perfil para carregar todos os arquivos.');
+      if (paths[0] !== weightsFile.name) throw failure('weights-name-mismatch', `O model.json espera o arquivo ${paths[0]}. Selecione esse arquivo de pesos da mesma exportação, sem renomeá-lo.`);
+      report(onProgress, 'Preparando o processamento da imagem…', 'libraries');
+      await abortable(ensureLibraries(), controller.signal);
+      if (typeof globalThis.tmImage.loadFromFiles !== 'function') throw failure('library-unavailable', 'A biblioteca de importação não iniciou. Recarregue a página e tente novamente.');
+      report(onProgress, 'Carregando os pesos do seu modelo…', 'weights');
+      entry.loaded = await verifyLoadedModel(globalThis.tmImage.loadFromFiles(modelFile, weightsFile, metadataFile), entry, labels, metadata, IMPORTED_MODEL_URL, 'files');
+      if (controller.signal.aborted || pendingImport !== entry) {
+        retireModel(entry.loaded);
+        throw controller.signal.reason || cancellation();
+      }
+      const previous = models.get(IMPORTED_MODEL_URL);
+      models.set(IMPORTED_MODEL_URL, entry);
+      retireModel(previous?.loaded);
+      report(onProgress, 'Modelo importado e pronto para identificar nesta aba.', 'ready');
+      return entry.loaded;
+    } catch (error) {
+      if (controller.signal.aborted) throw controller.signal.reason || cancellation();
+      if (error?.code?.startsWith('classifier/')) throw error;
+      throw failure('model-load-failed', 'Não foi possível carregar estes arquivos. Use model.json, metadata.json e os pesos .bin da mesma exportação TensorFlow.js.', error);
+    } finally {
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', onAbort);
+      if (pendingImport === entry) pendingImport = undefined;
+    }
+  })();
+  entry.promise.catch(() => {});
+  const loaded = await entry.promise;
+  if (loaded.retired) throw cancellation();
+  return publicModelInfo(loaded);
+}
+
+/** Forget the local import; outstanding inference releases its tensors when it finishes. */
+export function clearImportedPlantModel() {
+  pendingImport?.controller.abort(cancellation());
+  pendingImport = undefined;
+  const entry = models.get(IMPORTED_MODEL_URL);
+  models.delete(IMPORTED_MODEL_URL);
+  retireModel(entry?.loaded);
 }
 
 /** Optional explicit cancellation for a screen's cancel button. Loaded models stay reusable. */
@@ -258,19 +404,32 @@ export async function classifyPlant(imageOrCanvas, baseUrl, onProgress, options 
   const modelURL = validateModelURL(baseUrl);
   if (!validImageSource(imageOrCanvas)) throw failure('invalid-image', 'A foto ainda não está pronta. Selecione uma imagem nítida ou fotografe novamente.');
   if (options.signal?.aborted) throw cancellation();
-  const { model, labels, metadata } = await getEntry(modelURL, onProgress, options.signal);
-  if (options.signal?.aborted) throw cancellation();
+  const loaded = await getEntry(modelURL, onProgress, options.signal);
+  const { model, labels, metadata } = loaded;
+  if (options.signal?.aborted || loaded.retired) throw cancellation();
   report(onProgress, 'Analisando a foto com o seu modelo…', 'predicting');
+  if (options.signal?.aborted || loaded.retired) throw cancellation();
   let raw;
   try {
-    const prediction = model.predict(imageOrCanvas, false);
+    loaded.inFlight += 1;
+    const release = () => { loaded.inFlight -= 1; disposeWhenIdle(loaded); };
+    let prediction;
+    try {
+      prediction = Promise.resolve(model.predict(imageOrCanvas, false));
+    } catch (error) {
+      release();
+      throw error;
+    }
+    // Release only after actual prediction completion, even if the caller aborts early.
+    prediction = prediction.then(value => { release(); return value; }, error => { release(); throw error; });
     raw = options.signal ? await abortable(prediction, options.signal) : await prediction;
+    if (loaded.retired) throw cancellation();
   } catch (error) {
     if (options.signal?.aborted || error?.name === 'AbortError') throw cancellation();
     throw failure('prediction-failed', 'Não foi possível processar esta foto. Tente uma nova imagem ou reinicie o aplicativo.', error);
   }
   if (!Array.isArray(raw) || raw.length !== labels.length
-      || raw.some(item => !labels.includes(item.className) || !Number.isFinite(item.probability) || item.probability < 0 || item.probability > 1)) {
+      || raw.some(item => !item || !labels.includes(item.className) || !Number.isFinite(item.probability) || item.probability < 0 || item.probability > 1)) {
     throw failure('invalid-prediction', 'O modelo retornou uma resposta inválida. Publique-o novamente e confira as classes.');
   }
   const total = raw.reduce((sum, item) => sum + item.probability, 0);

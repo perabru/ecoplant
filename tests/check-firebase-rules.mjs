@@ -26,6 +26,11 @@ assert(validate(userRules,base,{$uid:'u1'}),'empty possibilities are omitted as 
 const tm={method:'teachable-machine',modelURL:profile.modelURL,modelName:'Ecoplant',modelLabels:['Saudável','Mancha foliar'],predictions:[{className:'Saudável',probability:0.8},{className:'Mancha foliar',probability:0.2}],topClass:'Saudável',confidence:0.8,analyzedAt:new Date().toISOString()};
 base.analyses.a1.result=tm;
 assert(validate(userRules,base,{$uid:'u1'}),'TM fixture must validate');
+for(const modelURL of ['local:ecoplant-model','https://perabru.github.io/ecoplant/my_model/']){
+  base.analyses.a1.result={...tm,modelURL};
+  assert(validate(userRules,base,{$uid:'u1'}),'imported and bundled reports must fit the existing Firebase schema');
+}
+base.analyses.a1.result=tm;
 assert(!validate(userRules,'bad',{$uid:'u1'}));
 assert(!validate(userRules,{...base,plants:'bad'},{$uid:'u1'}));
 assert(!validate(userRules,{...base,profile:{email:'teste@example.com'}},{$uid:'u1'}));

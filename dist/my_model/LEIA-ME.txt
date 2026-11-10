@@ -1,0 +1,29 @@
+MODELO DO ECOPLANT
+
+Esta pasta está preparada para um modelo de imagem do Teachable Machine.
+Nenhum modelo real ou peso treinado acompanha o repositório.
+
+Exporte o projeto em TensorFlow.js e coloque aqui:
+- model.json
+- metadata.json
+- weights.bin, ou o nome .bin declarado no manifesto de model.json
+
+A importação pelo seletor de arquivos aceita um único arquivo .bin.
+Para a pasta publicada, inclua todos os arquivos de pesos referenciados
+pelo manifesto e preserve seus nomes. O HTML de exemplo NÃO contém os pesos.
+
+dist/ é a fonte principal. Depois de adicionar os arquivos, execute:
+npm run prepare:pages
+
+O comando copia esta pasta para docs/my_model/. No site, o caminho é
+./my_model/. Arquivos empacotados serão públicos com o aplicativo.
+
+Alternativas em Perfil > Teachable Machine:
+- Link hospedado: informe a URL pública do modelo.
+- Arquivos do modelo: selecione os três arquivos juntos. A seleção vale
+  somente para a sessão/aba e deve ser repetida ao recarregar a página.
+  Esses arquivos selecionados no navegador não são enviados ao Firebase.
+
+Os dados e relatórios mantêm o fluxo de salvamento atual do aplicativo.
+O reconhecimento ainda precisa ser testado com um modelo real.
+Para concluir, forneça o ZIP exportado em TensorFlow.js ou a URL do modelo.

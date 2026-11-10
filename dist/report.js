@@ -44,11 +44,11 @@ export function reportHTML(record = {}, plant = {}, profile = {}, {draft = false
   const suppliedConfidence = result.confidence !== null && result.confidence !== undefined && result.confidence !== '' && Number.isFinite(Number(result.confidence));
   const hasConfidence = suppliedConfidence || predictions.length > 0;
   const confidence = suppliedConfidence ? clamp(result.confidence) : predictions[0]?.probability ?? 0;
-  const healthy = isTM && Boolean(profile.healthyClass) && topClass === String(profile.healthyClass);
+  const healthy = isTM && result.modelURL !== 'local:ecoplant-model' && Boolean(profile.healthyClass) && topClass === String(profile.healthyClass);
   const photo = picture(record.photo) || picture(plant.photo);
   const plantName = String(plant.name || 'Planta sem cadastro');
   const title = isTM ? topClass : String(result.title || 'Registro de observação');
-  const modelURL = modelAddress(result.modelURL);
+  const modelURL = result.modelURL === 'local:ecoplant-model' ? 'Arquivos do Teachable Machine importados nesta aba' : modelAddress(result.modelURL);
   const modelName = String(result.modelName || 'Modelo Teachable Machine');
   const reportId = String(record.id || 'rascunho').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,12).toUpperCase() || 'RASCUNHO';
   const reportDate = dateLabel(record.date || result.analyzedAt || record.createdAt);
