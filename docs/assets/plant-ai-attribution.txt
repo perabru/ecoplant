@@ -55,8 +55,14 @@ The binary model and centroids are not modified. EcoPlant adds Portuguese
 presentation, verified downloads, bounded retries, cancellation, local
 session caching, safe resource disposal, and neutral inconclusive reports.
 An OOD result omits disease classes and confidence scores. EcoPlant also
-abstains when the highest class probability is below 0.5. This extra 0.5
-threshold is an application policy, not a scientifically calibrated guarantee.
+abstains when the highest class probability is below 0.75, or predictions
+are incomplete or inconsistent. plant-health.js shares this interpretation
+across inference, reports, history and plant details. The defensive 0.15
+top-two margin is already implied by normalized probabilities with a 0.75
+leader. These thresholds are application policy, not scientifically
+calibrated accuracy, sensitivity or field performance. Policy version:
+ecoplant-health-v1. The interface distinguishes healthy appearance, possible
+disease, possible pest, and inconclusive; it never reports a health percentage.
 
 RUNTIME
 ONNX Runtime Web 1.30.0, by Microsoft and contributors, MIT License.
@@ -69,6 +75,9 @@ SCOPE AND LIMITATIONS
 The model recognizes 38 crop–condition classes in 14 crops: apple,
 blueberry, cherry, maize, grape, orange, peach, bell pepper, potato,
 raspberry, soybean, squash, strawberry and tomato.
+Blueberry, raspberry and soybean have only healthy training classes;
+orange and squash have no healthy training class. Conclusions explicitly
+note these gaps. A single leaf cannot establish the health of the whole plant.
 
 The training data shows single detached leaves under controlled conditions.
 Outdoor backgrounds, other species, several leaves, roots, stems, lighting,

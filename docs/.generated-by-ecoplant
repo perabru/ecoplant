@@ -32,6 +32,7 @@
     "model-config.js",
     "my_model/LEIA-ME.txt",
     "plant-ai.js",
+    "plant-health.js",
     "pwa.js",
     "report.js",
     "styles.css",

@@ -1,4 +1,5 @@
 /** Ecoplant — reports render measured model outputs, never an invented health score. */
+import { describePlantHealth, PLANT_HEALTH_POLICY, PLANT_HEALTH_POLICY_VERSION } from './plant-health.js';
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const text = (value, fallback = 'Não informado') => escapeHTML(String(value ?? '').trim() || fallback);
 const recordObject = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -19,6 +20,8 @@ const icon = name => {
   const paths = {
     leaf:'<path d="M20 4c-9-2-16 3-15 10s9 7 12 2 3-12 3-12Z"/><path d="M4 21 15 10"/>',
     check:'<path d="m5 12 4 4 10-10"/>',
+    alert:'<path d="m12 3 10 18H2L12 3Z"/><path d="M12 9v5m0 3v.1"/>',
+    search:'<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
     camera:'<rect x="3" y="6" width="18" height="15" rx="3"/><path d="m8 6 2-3h4l2 3"/><circle cx="12" cy="13" r="4"/>',
     download:'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
     print:'<path d="M6 9V3h12v6M6 17H3V9h18v8h-3M6 14h12v7H6z"/><path d="M17 11h1"/>',
@@ -87,6 +90,26 @@ const CSS = `<style>
 @media(max-width:760px){.rp-toolbar{display:block;margin-bottom:20px}.rp-toolbar h1{font-size:34px}.rp-toolbar-actions{margin-top:17px}.rp-toolbar-actions .btn{font-size:10px;padding:10px 12px;min-height:38px}.rp-masthead{padding:20px}.rp-wordmark{font-size:27px}.rp-reportid{font-size:8px}.rp-reportid strong{font-size:8px}.rp-overview{grid-template-columns:1fr}.rp-photo-wrap{padding:18px}.rp-photo,.rp-no-photo{aspect-ratio:1.35;max-height:280px}.rp-photo-note{font-size:9px}.rp-summary{padding:23px 20px}.rp-summary h2{font-size:33px}.rp-metric{margin-top:20px}.rp-record-details{grid-template-columns:1fr 1fr;padding:20px;gap:18px}.rp-body{grid-template-columns:1fr;padding:23px 20px;gap:25px}.rp-metadata{grid-template-columns:1fr}.rp-disclaimer{padding:17px 20px;font-size:9px}.rp-bottom{padding:16px 20px;align-items:flex-start;font-size:7px}.rp-after-actions .btn{flex:1}.rp-metric-label p{font-size:10px}.rp-section h3{font-size:25px}.rp-sheet{border-radius:15px}}
 @media(prefers-reduced-motion:reduce){.eco-report,.rp-progress,.rp-bar{animation:none!important}}
 @media print{@page{size:A4 portrait;margin:12mm}html,body{background:#fff!important;color:#173e32!important;height:auto!important}.shell{padding:0!important;min-height:0!important}.sidebar,.topbar,.mobile-nav,.no-print,.footer-caption,.app-banner,#toast,dialog,.rp-toolbar,.rp-after-actions,.rp-draft-banner{display:none!important}.content{padding:0!important;margin:0!important;max-width:none!important}.eco-report{animation:none!important;font-size:10pt}.rp-sheet{box-shadow:none!important;border:1px solid #dce3d3;border-radius:0;overflow:visible}.rp-masthead{padding:5mm 6mm}.rp-wordmark{font-size:26pt}.rp-overview{grid-template-columns:.8fr 1.4fr}.rp-photo-wrap{padding:5mm}.rp-photo{max-height:61mm;aspect-ratio:1;object-fit:cover}.rp-no-photo{height:61mm}.rp-summary{padding:5mm 6mm}.rp-summary h2{font-size:23pt;margin:3mm 0 2mm}.rp-metric{margin:4mm 0 3mm}.rp-donut{height:65px;width:65px}.rp-donut strong{font-size:12px}.rp-metric-label strong{font-size:9px}.rp-metric-label p,.rp-model-note,.rp-photo-note{font-size:8px}.rp-record-details{grid-template-columns:repeat(4,1fr);padding:4mm 6mm;gap:3mm}.rp-record-details dt{font-size:7px}.rp-record-details dd{font-size:8px}.rp-body{grid-template-columns:1fr 1fr;padding:5mm 6mm;gap:5mm}.rp-section{break-inside:avoid}.rp-section h3{font-size:17pt;margin-bottom:3mm}.rp-section-note,.rp-prediction-label,.rp-checks li,.rp-observation{font-size:8px!important}.rp-section .rp-section-note{margin-top:0;margin-bottom:3mm}.rp-checks{gap:2mm}.rp-observation{padding:3mm;min-height:17mm}.rp-prediction{margin-bottom:3mm}.rp-track{height:5px}.rp-bar{animation:none!important;transform:none!important}.rp-donut .rp-progress{animation:none!important;stroke-dashoffset:var(--rp-dash)!important}.rp-chips{gap:1.5mm;margin-top:2mm}.rp-chip{font-size:7px;padding:1mm 2mm}.rp-metadata{grid-template-columns:1fr 1fr;padding-top:3mm;gap:4mm}.rp-metadata h3{font-size:8px}.rp-metadata p{font-size:7px}.rp-disclaimer{padding:3mm 6mm;font-size:7px;break-inside:avoid}.rp-bottom{padding:3mm 6mm;font-size:6px}.rp-guided-card{padding:3mm;break-inside:avoid}.rp-guided-card h4{font-size:8px}.rp-guided-card p{font-size:7px}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}
+
+/* The verdict is readable without relying on color, including in printed reports. */
+.rp-summary.rp-verdict-healthy,.rp-summary.rp-verdict-danger,.rp-summary.rp-verdict-neutral{border-left:5px solid var(--rp-verdict-accent);justify-content:flex-start}
+.rp-verdict-healthy{--rp-verdict-accent:#37764c;--rp-verdict-soft:#e7f1e7;--rp-verdict-text:#285d39}
+.rp-verdict-danger{--rp-verdict-accent:#b74d35;--rp-verdict-soft:#fff0e9;--rp-verdict-text:#963c29}
+.rp-verdict-neutral{--rp-verdict-accent:#70858c;--rp-verdict-soft:#edf2f4;--rp-verdict-text:#4b666f}
+.rp-status.rp-status-healthy,.rp-status.rp-status-danger,.rp-status.rp-status-neutral{font-size:11px;line-height:1.5;padding:7px 11px;background:var(--rp-verdict-soft);color:var(--rp-verdict-text);border:1px solid var(--rp-verdict-accent)}
+.rp-status[class*="rp-status-"] .icon{width:16px;height:16px;stroke-width:2}
+.rp-verdict-details{display:grid;grid-template-columns:1fr;gap:11px;margin:18px 0 0;padding:14px 16px;border-radius:11px;background:var(--rp-verdict-soft)}
+.rp-verdict-details dt{font-size:10px;line-height:1.5;color:var(--rp-verdict-text);margin-bottom:3px}
+.rp-verdict-details dd{font-size:14px;font-weight:600;line-height:1.5;margin:0;overflow-wrap:anywhere;color:var(--rp-verdict-text)}
+.rp-verdict-details .rp-verdict-condition dd{font-size:20px;line-height:1.3}
+.rp-verdict-explanation{font-size:14px;line-height:1.8;margin-top:16px;color:#586e5b}
+.rp-verdict-danger .rp-donut .rp-progress{stroke:#b76a52}
+.eco-report[data-health-status="disease"] .rp-bar,.eco-report[data-health-status="pest"] .rp-bar{background:#b76a52}
+.eco-report[data-health-status="disease"] .rp-prediction-label strong,.eco-report[data-health-status="pest"] .rp-prediction-label strong{color:#963c29}
+.rp-verdict-neutral .rp-donut .rp-progress{stroke:#70858c}
+@media screen{html[data-theme="dark"] .rp-verdict-healthy{--rp-verdict-accent:#8ebd8d;--rp-verdict-soft:#243f2e;--rp-verdict-text:#c2e5ba}html[data-theme="dark"] .rp-verdict-danger{--rp-verdict-accent:#e0a38d;--rp-verdict-soft:#49322c;--rp-verdict-text:#ffd2c1}html[data-theme="dark"] .rp-verdict-neutral{--rp-verdict-accent:#a4bbc4;--rp-verdict-soft:#2c3e42;--rp-verdict-text:#d4e2e6}html[data-theme="dark"] .rp-status.rp-status-healthy,html[data-theme="dark"] .rp-status.rp-status-danger,html[data-theme="dark"] .rp-status.rp-status-neutral{color:var(--rp-verdict-text);background:var(--rp-verdict-soft)}html[data-theme="dark"] .rp-verdict-explanation{color:#c1d2b9}html[data-theme="dark"] .rp-verdict-danger .rp-donut .rp-progress{stroke:#e0a38d}html[data-theme="dark"] .eco-report[data-health-status="disease"] .rp-bar,html[data-theme="dark"] .eco-report[data-health-status="pest"] .rp-bar{background:#e0a38d}html[data-theme="dark"] .eco-report[data-health-status="disease"] .rp-prediction-label strong,html[data-theme="dark"] .eco-report[data-health-status="pest"] .rp-prediction-label strong{color:#ffd2c1}}
+@media(max-width:760px){.rp-summary.rp-verdict-healthy,.rp-summary.rp-verdict-danger,.rp-summary.rp-verdict-neutral{border-left:0;border-top:5px solid var(--rp-verdict-accent)}.rp-verdict-details{margin-top:15px;padding:13px 14px}.rp-verdict-explanation{font-size:14px}}
+@media print{.rp-summary.rp-verdict-healthy,.rp-summary.rp-verdict-danger,.rp-summary.rp-verdict-neutral{border-left:3px solid var(--rp-verdict-accent);border-top:0}.rp-status.rp-status-healthy,.rp-status.rp-status-danger,.rp-status.rp-status-neutral{font-size:8px;padding:2px 5px}.rp-verdict-details{padding:2mm 3mm;margin-top:3mm;gap:2mm;break-inside:avoid}.rp-verdict-details dt{font-size:7px}.rp-verdict-details dd{font-size:9px}.rp-verdict-details .rp-verdict-condition dd{font-size:12px}.rp-verdict-explanation{font-size:8px;line-height:1.6;margin-top:3mm}.rp-summary h2{font-size:21pt}}
 </style>`;
 
 /** @returns {string} Sanitized report content, ready for the application's content container. */
@@ -98,6 +121,7 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const result = recordObject(record.result);
   const isTM = result.method === 'teachable-machine';
   const isAI = result.method === 'plant-ai';
+  const assessment = isAI ? describePlantHealth(result) : null;
   const isAutomated = isTM || isAI;
   const predictions = (Array.isArray(result.predictions) ? result.predictions : [])
     .filter(p => p && typeof p.className === 'string' && p.className.trim() && probability(p.probability) !== null)
@@ -107,7 +131,7 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const suppliedConfidence = probability(result.confidence) !== null;
   // Plant AI omits confidence/predictions when the image is outside its supported scope.
   // Never recover a disease label or chart from incomplete/inconclusive output.
-  const inconclusive = isAutomated && (result.severity === 'inconclusive' || (isAI && (!suppliedConfidence || !predictions.length)));
+  const inconclusive = isAutomated && (result.severity === 'inconclusive' || (isAI && assessment.status === 'inconclusive'));
   const hasConfidence = !inconclusive && (suppliedConfidence || (isTM && predictions.length > 0));
   const confidence = suppliedConfidence ? probability(result.confidence) : predictions[0]?.probability ?? 0;
   const healthy = isTM && !inconclusive && result.modelURL !== 'local:ecoplant-model' && Boolean(profile.healthyClass) && topClass === String(profile.healthyClass);
@@ -121,10 +145,8 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const symptoms = (Array.isArray(record.symptoms) ? record.symptoms : []).filter(v => typeof v === 'string');
   const possibilities = (Array.isArray(result.possibilities) ? result.possibilities : []).filter(v => v && typeof v === 'object');
   const isObservation = !isAutomated && !symptoms.length && !possibilities.length;
-  const suppliedTitle = String(result.title || '').trim();
-  const aiTitle = suppliedTitle && !suppliedTitle.includes('___') ? suppliedTitle : `Classe sugerida: ${formatPlantAIClassLabel(topClass)}`;
-  const title = inconclusive ? 'Análise inconclusiva' : isTM ? topClass : isAI ? aiTitle : String(result.title || (isObservation ? 'Registro fotográfico' : 'Registro de observação'));
-  const suppliedCare = !isTM && Array.isArray(result.care) ? result.care.filter(item => typeof item === 'string' && item.trim()) : [];
+  const title = inconclusive ? 'Análise inconclusiva' : isTM ? topClass : isAI ? assessment.title : String(result.title || (isObservation ? 'Registro fotográfico' : 'Registro de observação'));
+  const suppliedCare = isAI ? assessment.care : !isTM && Array.isArray(result.care) ? result.care.filter(item => typeof item === 'string' && item.trim()) : [];
   const care = suppliedCare.length ? suppliedCare : [
     'Observe o verso das folhas, o caule e o substrato. Registre alterações que a foto não mostra.',
     'Fotografe novamente a mesma região, com iluminação e enquadramento semelhantes, para comparar a evolução.',
@@ -134,9 +156,7 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   // The three displayed predictions do not establish the model's full training scope.
   const scope = Array.isArray(result.modelLabels) ? result.modelLabels.filter(label => typeof label === 'string' && label.trim()).length : 0;
   const modelSummary = isAI
-    ? String(result.summary || (inconclusive
-      ? 'A IA não apresentou uma classificação conclusiva para esta imagem. Faça uma nova foto da folha, com boa iluminação e fundo simples.'
-      : `A IA comparou a imagem com ${scope || 'as'} classes do seu treinamento. A classe sugerida depende do modelo e precisa ser confirmada.`))
+    ? assessment.summary
     : isTM ? (inconclusive ? 'O modelo não apresentou uma classificação conclusiva para esta imagem.' : `O modelo escolheu a classe de maior probabilidade entre ${scope || 'as'} classes disponíveis. O resultado depende das imagens e das condições utilizadas no treinamento.`)
     : isObservation ? 'A fotografia serve como registro. Nenhum sinal foi informado e a imagem não foi analisada automaticamente.'
     : 'Esta triagem organiza os sinais que você informou. A fotografia foi usada como registro e não foi classificada automaticamente.';
@@ -146,7 +166,7 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
     ? 'Identificação preliminar por imagem. O modelo compara a foto apenas com as classes em que foi treinado; uma planta fora desse conjunto também recebe uma classificação. A confiança não confirma a doença nem informa sua gravidade. Confirme alterações com um profissional antes de iniciar tratamentos.'
     : String(result.disclaimer || 'Registro baseado nas observações informadas. Esta avaliação não confirma a presença ou ausência de doença. Procure orientação especializada para interpretar alterações persistentes.');
   const linkedPlantId = String(plant.id || record.plantId || '');
-  const status = isAI ? (inconclusive ? 'IA · análise inconclusiva' : 'Análise por IA')
+  const status = isAI ? (inconclusive ? 'IA · análise inconclusiva' : assessment.status === 'healthy' ? 'IA · aparência saudável' : assessment.status === 'pest' ? 'IA · possível praga' : 'IA · possível doença')
     : isTM ? (inconclusive ? 'Classificação inconclusiva' : healthy ? 'Classe saudável no modelo' : 'Classe identificada pelo modelo')
     : isObservation ? 'Registro fotográfico · sem IA' : 'Triagem por sinais informados';
   const methodLabel = isAI ? 'Análise de imagem por IA' : isTM ? 'Classificação de imagem · Teachable Machine'
@@ -157,23 +177,29 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
     return `<div class="rp-prediction"><div class="rp-prediction-label"><span>${text(label)}${original}</span><strong>${percent(p.probability)}</strong></div><div class="rp-track" role="meter" aria-label="${text(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${(p.probability * 100).toFixed(1)}"><div class="rp-bar" style="--rp-width:${(p.probability * 100).toFixed(2)}%"></div></div></div>`;
   }).join('') : '';
   const guidedCards = possibilities.slice(0,3).map(p => `<article class="rp-guided-card"><h4>${text(p.name)}</h4><p>${text(p.reason)}</p></article>`).join('');
-  const resultHeading = isAI ? 'Resultado da análise por IA' : isTM ? 'O que o modelo encontrou' : isObservation ? 'O que foi registrado' : 'Possibilidades observadas';
-  const resultNote = isAutomated ? (inconclusive ? 'Não há uma identificação conclusiva para esta imagem.' : 'As classes mais prováveis para esta imagem.')
+  const resultHeading = isAI ? (inconclusive ? 'Como obter um resultado melhor' : 'Detalhes da classificação') : isTM ? 'O que o modelo encontrou' : isObservation ? 'O que foi registrado' : 'Possibilidades observadas';
+  const resultNote = isAutomated ? (inconclusive ? 'Não há uma identificação conclusiva para esta imagem.' : 'Pontuações das classes comparadas pela IA. Elas não representam a porcentagem de saúde da planta.')
     : isObservation ? 'Fotografia e observações para acompanhar a evolução.' : 'Hipóteses baseadas nos sinais que você selecionou.';
   const resultContent = isAutomated ? (inconclusive
-    ? '<p class="rp-section-note">Nenhuma hipótese de doença é apresentada neste resultado. Consulte o resumo e registre uma nova foto para outra tentativa.</p>'
+    ? '<p class="rp-section-note">Não foi possível distinguir com segurança uma folha saudável de uma folha com alterações. Fotografe uma única folha inteira, bem iluminada, contra um fundo simples e confira se a planta está entre as culturas atendidas.</p>'
     : bars || '<p class="rp-section-note">Não há probabilidades disponíveis neste registro.</p>')
     : guidedCards || '<p class="rp-section-note">Não foram sugeridas hipóteses para este registro.</p>';
-  return `${CSS}<article class="eco-report" aria-label="Relatório Ecoplant de ${text(plantName)}">
+  const verdictTone = isAI ? assessment.tone : '';
+  const verdictIcon = isAI ? assessment.status === 'healthy' ? 'check' : inconclusive ? 'search' : 'alert' : healthy ? 'check' : 'info';
+  const conditionLabel = assessment?.status === 'pest' ? 'Possível praga' : 'Possível doença';
+  const verdictDetails = isAI && !inconclusive ? `<dl class="rp-verdict-details"><div><dt>Planta reconhecida pelo modelo</dt><dd>${text(assessment.crop)}</dd></div>${assessment.status === 'disease' || assessment.status === 'pest' ? `<div class="rp-verdict-condition"><dt>${conditionLabel}</dt><dd>${text(assessment.condition)}</dd></div>` : `<div><dt>Aspecto da folha</dt><dd>Compatível com a classe saudável</dd></div>`}</dl>` : '';
+  return `${CSS}<article class="eco-report"${isAI ? ` data-health-status="${escapeHTML(assessment.status)}"` : ''} aria-label="Relatório Ecoplant de ${text(plantName)}">
     <header class="rp-toolbar no-print"><div><div class="eyebrow">ECOPLANT / ACOMPANHAMENTO</div><h1>Relatório da planta</h1><p>Leia o relatório aqui e exporte quando precisar.</p></div><div class="rp-toolbar-actions"><button type="button" class="btn secondary small" data-action="print-report">${icon('print')}Imprimir / PDF</button><button type="button" class="btn secondary small" data-action="export-report">${icon('download')}Exportar relatório</button></div></header>
     ${draft ? `<div class="rp-draft-banner no-print">${icon('save')}<span>Relatório gerado. Salve para incluí-lo no histórico da planta.</span></div>` : ''}
     <div class="rp-sheet">
       <div class="rp-masthead"><div><div class="rp-wordmark"><img class="rp-brand-logo" src="./assets/ecoplant-logo.png" width="34" height="34" alt="Logo Ecoplant">Ecoplant</div><div class="rp-kicker">Relatório de acompanhamento vegetal</div></div><div class="rp-reportid"><strong>REGISTRO ${text(reportId)}</strong>${text(reportDate)}</div></div>
       <section class="rp-overview" aria-label="Resumo da avaliação">
         <div class="rp-photo-wrap">${photo ? `<img class="rp-photo" src="${escapeHTML(photo)}" alt="Foto registrada de ${text(plantName)}">` : `<div class="rp-no-photo" role="img" aria-label="Registro sem fotografia">${icon('leaf')}</div>`}<p class="rp-photo-note">${photo ? 'Fotografia vinculada a este registro. Compare com novas fotos da mesma região.' : 'Nenhuma fotografia foi vinculada a este registro.'}</p></div>
-        <div class="rp-summary"><span class="rp-status${healthy ? '' : ' amber'}">${icon(healthy ? 'check' : 'info')}${text(status)}</span><h2>${text(title)}</h2><p class="rp-plant">${text(plantName)}${plant.species ? ` · <i>${text(plant.species)}</i>` : ''}</p>
-          ${isAutomated && hasConfidence ? `<div class="rp-metric"><div class="rp-donut" role="img" aria-label="Confiança do modelo: ${percent(confidence)}" style="--rp-dash:${(251.3274 * (1-confidence)).toFixed(4)}"><svg viewBox="0 0 96 96" aria-hidden="true"><circle cx="48" cy="48" r="40"/><circle class="rp-progress" cx="48" cy="48" r="40"/></svg><strong>${percent(confidence)}</strong></div><div class="rp-metric-label"><strong>Confiança do modelo</strong><p>Probabilidade atribuída à classe. Este valor não mede a saúde ou a gravidade da doença.</p></div></div>` : `<p class="rp-model-note">${isAutomated ? (inconclusive ? 'Não foi atribuída uma classificação com confiança suficiente.' : 'A confiança do modelo não está disponível neste registro.') : text(result.summary, 'Observações registradas para acompanhar a evolução da planta.')}</p>`}
-          <p class="rp-model-note">${text(modelSummary)}</p>
+        <div class="rp-summary${isAI ? ` rp-verdict-${verdictTone}` : ''}"><span class="rp-status${isAI ? ` rp-status-${verdictTone}` : healthy ? '' : ' amber'}">${icon(verdictIcon)}${text(status)}</span><h2>${text(title)}</h2><p class="rp-plant">${text(plantName)}${plant.species ? ` · <i>${text(plant.species)}</i>` : ''}</p>
+          ${verdictDetails}
+          ${isAI ? `<p class="rp-verdict-explanation">${text(modelSummary)}</p>` : ''}
+          ${isAutomated && hasConfidence ? `<div class="rp-metric"><div class="rp-donut" role="img" aria-label="Confiança ${isAI ? 'na classificação' : 'do modelo'}: ${percent(confidence)}" style="--rp-dash:${(251.3274 * (1-confidence)).toFixed(4)}"><svg viewBox="0 0 96 96" aria-hidden="true"><circle cx="48" cy="48" r="40"/><circle class="rp-progress" cx="48" cy="48" r="40"/></svg><strong>${percent(confidence)}</strong></div><div class="rp-metric-label"><strong>${isAI ? 'Confiança na classificação' : 'Confiança do modelo'}</strong><p>Probabilidade atribuída à classe. Este valor não mede a saúde ou a gravidade da doença.</p></div></div>` : !isAI ? `<p class="rp-model-note">${isAutomated ? (inconclusive ? 'Não foi atribuída uma classificação com confiança suficiente.' : 'A confiança do modelo não está disponível neste registro.') : text(result.summary, 'Observações registradas para acompanhar a evolução da planta.')}</p>` : ''}
+          ${!isAI ? `<p class="rp-model-note">${text(modelSummary)}</p>` : ''}
         </div>
       </section>
       <dl class="rp-record-details"><div><dt>Planta</dt><dd>${text(plantName)}</dd></div><div><dt>Espécie</dt><dd>${text(plant.species)}</dd></div><div><dt>Local</dt><dd>${text(plant.location)}</dd></div><div><dt>Responsável</dt><dd>${text(author)}</dd></div></dl>
@@ -191,7 +217,7 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   </article>`;
 }
 
-/** Download the report's actual stored values, never rendered or executable HTML. */
+/** Download original stored values plus the current interpretation, never executable HTML. */
 export function downloadReport(record = {}, plant = {}) {
   record = recordObject(record);
   plant = recordObject(plant);
@@ -199,7 +225,12 @@ export function downloadReport(record = {}, plant = {}) {
     app:'Ecoplant', formatVersion:1, exportedAt:new Date().toISOString(),
     note:'Confiança do modelo não mede saúde ou gravidade. Registro de acompanhamento, não diagnóstico confirmado.',
     plant:{id:plant.id || record.plantId || null, name:plant.name || 'Planta da foto', species:plant.species || '', location:plant.location || '', notes:plant.notes || ''},
-    report:record
+    report:record,
+    ...(record.result?.method === 'plant-ai' ? {assessment:{
+      ...describePlantHealth(record.result),
+      scope:'Aparência da folha fotografada; não representa a saúde da planta inteira.',
+      policy:{version:PLANT_HEALTH_POLICY_VERSION, ...PLANT_HEALTH_POLICY, note:'Critérios de exibição definidos pelo EcoPlant; não são precisão diagnóstica validada.'}
+    }} : {})
   };
   const body = JSON.stringify(envelope, null, 2);
   const blob = new Blob([body], {type:'application/json;charset=utf-8'});

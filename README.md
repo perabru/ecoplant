@@ -12,6 +12,8 @@ PWA em português para registrar plantas, fotografar folhas e acompanhar sua evo
 - Cadastro, edição e exclusão de plantas, fotos reduzidas no navegador e histórico.
 - Câmera ao vivo com alternância frontal/traseira e alternativa de câmera nativa/galeria.
 - IA de imagem pronta para uso no navegador, sem chave de API, com modelo aberto DINOv2/PlantVillage e verificação de imagens fora do conjunto.
+- Conclusão em destaque: aparência saudável, sinais de possível doença, sinais de possível praga ou análise inconclusiva; o nome da hipótese aparece em português.
+- Resultado da última foto na ficha da planta e filtros de resultado no histórico, sempre com data e sem transformar a confiança do modelo em porcentagem de saúde.
 - Suporte a modelos de imagem do Teachable Machine por link hospedado, arquivos selecionados no navegador ou pasta `./my_model/` do aplicativo.
 - Relatório que abre dentro do aplicativo, com foto, resultado real da IA, observações, salvamento no histórico e botão direto Imprimir / PDF.
 - Relatório de observação sem IA, com sinais opcionais e registro fotográfico mesmo sem planta cadastrada.
@@ -47,6 +49,14 @@ Autorize `perabru.github.io` em Authentication → Configurações → Domínios
 Abra **Analisar planta**, envie uma foto e toque em **Analisar com IA e gerar relatório**. Vincular a foto a uma planta cadastrada é opcional. O relatório aparece no aplicativo; use **Salvar no histórico** para guardá-lo e **Imprimir / PDF** para exportar. Na ficha de uma planta, **Gerar relatório com esta foto** usa a imagem cadastrada; **Analisar uma nova foto** limpa o contexto anterior.
 
 A opção **Relatório de observação — sem IA** também funciona sem marcar sinais: nesse caso, gera um registro fotográfico neutro, sem hipótese de doença ou afirmação de saúde. Falhas na IA nunca acionam essa opção silenciosamente.
+
+### Entender a saúde da folha
+
+O relatório coloca a conclusão antes dos gráficos. **Aparência saudável** significa semelhança com folhas saudáveis do conjunto do modelo, restrita à foto enviada. **Sinais de possível doença** apresenta a cultura e o nome da hipótese; **Sinais de possível praga** diferencia ácaro rajado de doença. **Análise inconclusiva** não exibe uma doença nem porcentagens de confiança e orienta a fotografar novamente. Texto e ícones acompanham as cores verde, vermelha e neutra.
+
+`dist/plant-health.js` mantém uma interpretação única para análise, relatório, ficha e histórico. Só aceita classes conhecidas, escores numéricos consistentes e probabilidade da classe principal a partir de 0,75. A margem mínima de 0,15 é uma verificação defensiva redundante para probabilidades normalizadas nesse limiar. Os limites são uma política conservadora do aplicativo, não precisão, sensibilidade ou desempenho em campo validados. A verificação original de imagem fora do conjunto também continua ativa.
+
+Relatórios antigos são apresentados segundo essa política atual. O JSON exportado conserva o registro original em `report` e inclui a interpretação atual em `assessment`, com a versão da política. Nenhum campo adicional é gravado no Firebase. As culturas mirtilo, framboesa e soja têm somente classes saudáveis no treinamento; laranja e abóbora não têm classe saudável. O relatório informa essas limitações quando aplicáveis.
 
 A IA de imagem usa o modelo aberto [rodynaemad/plant-disease-dinov2-small](https://huggingface.co/rodynaemad/plant-disease-dinov2-small), de Rodayna Emad Mohamed, treinado no [PlantVillage](https://huggingface.co/datasets/mohanty/PlantVillage). A exportação ONNX int8 tem cerca de 24 MB e é executada por ONNX Runtime Web 1.30.0 em WebAssembly. A primeira utilização exige internet para baixar o modelo e o mecanismo de processamento; nenhuma chave ou treinamento próprio é necessário. A foto é processada no navegador. A opção de salvar mantém o armazenamento habitual do aplicativo: conta Firebase ou modo local.
 

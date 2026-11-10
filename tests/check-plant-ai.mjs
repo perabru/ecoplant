@@ -95,6 +95,7 @@ async function fresh(options = {}) {
   assert.notEqual(source, productionSource, 'mock fixture replacement must be explicit');
   if (options.loadTimeout) source = source.replace('const LOAD_TIMEOUT = 120000;', `const LOAD_TIMEOUT = ${options.loadTimeout};`);
   if (options.inferenceTimeout) source = source.replace('const INFERENCE_TIMEOUT = 45000;', `const INFERENCE_TIMEOUT = ${options.inferenceTimeout};`);
+  source = source.replace("'./plant-health.js'", JSON.stringify(new URL('../dist/plant-health.js', import.meta.url).href));
   const api = await import(`data:text/javascript;base64,${Buffer.from(`${source}\n//# sourceURL=plant-ai-fixture-${++serial}.js`).toString('base64')}`);
   return { api, calls, session, runtime };
 }
@@ -140,6 +141,7 @@ await test('valid disease output preserves raw labels, real scores and preproces
   const { api, calls } = await fresh();
   const result = await api.classifyPlantAI(image, () => { throw new Error('Display-only failure'); });
   assert.equal(result.method, 'plant-ai'); assert.equal(result.topClass, 'Apple___Apple_scab');
+  assert.equal(result.title, 'Sinais de possível doença');
   assert.equal(result.severity, 'attention'); assert.equal(result.predictions.length, 3);
   assert.equal(result.confidence, result.predictions[0].probability);
   assert.ok(result.confidence > 0.99 && result.confidence < 1);
@@ -159,6 +161,7 @@ await test('healthy class is qualified and remains an observation', async () => 
   const { api } = await fresh({ top: 37 });
   const result = await api.classifyPlantAI(image);
   assert.equal(result.topClass, 'Tomato___healthy'); assert.equal(result.severity, 'observe');
+  assert.equal(result.title, 'Aparência saudável');
   assert.match(result.summary, /não descarta/); assert.ok(result.confidence > .5);
   api.clearPlantAI();
 });
@@ -177,6 +180,21 @@ await test('uncertain closed-set classification also abstains', async () => {
   const { api } = await fresh({ uncertain: true });
   const result = await api.classifyPlantAI(image);
   assert.equal(result.title, 'Análise inconclusiva'); assert.ok(!('confidence' in result));
+  api.clearPlantAI();
+});
+
+await test('moderate confidence is stored as inconclusive without stale disease scores', async () => {
+  const { api } = await fresh({ run() {
+    const outputs = outputFixture();
+    outputs.logits.data.fill(0);
+    outputs.logits.data[0] = Math.log(0.65 * 37 / (1 - 0.65));
+    return outputs;
+  } });
+  const result = await api.classifyPlantAI(image);
+  assert.equal(result.title, 'Análise inconclusiva');
+  assert.equal(result.topClass, 'Análise inconclusiva');
+  assert.ok(!('confidence' in result) && !('predictions' in result));
+  assert.doesNotMatch(result.summary, /sarna/i);
   api.clearPlantAI();
 });
 

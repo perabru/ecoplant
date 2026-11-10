@@ -6,6 +6,8 @@
  * Fixed revisions and CC BY-SA 4.0 attribution: assets/plant-ai-attribution.txt.
  * No photo is sent to a model server. There is no synthetic prediction fallback.
  */
+import { describePlantHealth } from './plant-health.js';
+
 const MODEL_NAME = 'EcoPlant IA · DINOv2 PlantVillage';
 const MODEL_URL = 'https://huggingface.co/rodynaemad/plant-disease-dinov2-small';
 const MODEL_REVISION = '06ebf5e308e100fd000d738c42b059ebb5f58a16';
@@ -20,8 +22,6 @@ const FEATURE_DIM = 768;
 // Exact threshold and label order from the pinned author's meta.json. The
 // threshold is the author's OOD calibration, not a probability of disease.
 const OOD_THRESHOLD = 0.699429452419281;
-// Additional EcoPlant abstention policy; this is not a calibrated accuracy.
-const MIN_CLASS_PROBABILITY = 0.5;
 const LABELS = Object.freeze([
   'Apple___Apple_scab', 'Apple___Black_rot', 'Apple___Cedar_apple_rust', 'Apple___healthy',
   'Blueberry___healthy', 'Cherry_(including_sour)___Powdery_mildew', 'Cherry_(including_sour)___healthy',
@@ -40,8 +40,6 @@ const ASSETS = Object.freeze([
   { name: 'model', url: `${MODEL_URL}/resolve/${MODEL_REVISION}/onnx/model_with_features_quantized.onnx`, bytes: 24231170, sha256: '907fe4ed9d5f3fa6f6f6a9321a4564766e5136a2f316a2b23c930c3bfa13d72b' },
   { name: 'centroids', url: `https://huggingface.co/spaces/rodynaemad/plant-disease-scanner/resolve/${SPACE_REVISION}/centroids.f32`, bytes: 116736, sha256: 'e873c9330db03dddf31e1f73db8fcb0bc4a186b69ff4d944aaec703beeeb5e51' }
 ]);
-const CROPS = Object.freeze({ Apple: 'macieira', Blueberry: 'mirtilo', 'Cherry_(including_sour)': 'cerejeira', 'Corn_(maize)': 'milho', Grape: 'videira', Orange: 'laranjeira', Peach: 'pessegueiro', 'Pepper,_bell': 'pimentão', Potato: 'batateira', Raspberry: 'framboeseira', Soybean: 'soja', Squash: 'abóbora', Strawberry: 'morangueiro', Tomato: 'tomateiro' });
-const CONDITIONS = Object.freeze({ healthy: 'folha saudável', Apple_scab: 'sarna', Black_rot: 'podridão negra', Cedar_apple_rust: 'ferrugem', Powdery_mildew: 'oídio', 'Cercospora_leaf_spot Gray_leaf_spot': 'cercosporiose', Common_rust_: 'ferrugem comum', Northern_Leaf_Blight: 'helmintosporiose', 'Esca_(Black_Measles)': 'esca', 'Leaf_blight_(Isariopsis_Leaf_Spot)': 'mancha foliar por Isariopsis', 'Haunglongbing_(Citrus_greening)': 'huanglongbing (greening)', Bacterial_spot: 'mancha bacteriana', Early_blight: 'pinta preta', Late_blight: 'requeima', Leaf_scorch: 'queima das folhas', Leaf_Mold: 'mofo das folhas', Septoria_leaf_spot: 'septoriose', 'Spider_mites Two-spotted_spider_mite': 'ácaro rajado', Target_Spot: 'mancha alvo', Tomato_Yellow_Leaf_Curl_Virus: 'vírus do enrolamento amarelo das folhas', Tomato_mosaic_virus: 'vírus do mosaico do tomateiro' });
 let currentEntry;
 
 function failure(code, message, cause) {
@@ -318,20 +316,24 @@ function outputsToResult(outputs, centroids) {
     similarity = Math.max(similarity, dot / norm);
   }
   const base = { method: 'plant-ai', modelName: MODEL_NAME, modelURL: MODEL_URL, modelLabels: [...LABELS], analyzedAt: new Date().toISOString(), disclaimer: 'Avaliação preliminar por modelo aberto de Rodayna Emad Mohamed (rodynaemad), licença CC BY-SA 4.0. Treinado em folhas isoladas do PlantVillage: 38 classes de 14 culturas. Fotos de campo, outras espécies e problemas ausentes do treinamento podem produzir erros. O cálculo da IA ocorre neste dispositivo. A pontuação não confirma um diagnóstico; procure orientação agronômica antes de tratar a planta.' };
-  if (similarity < OOD_THRESHOLD || predictions[0].probability < MIN_CLASS_PROBABILITY) return {
+  if (similarity < OOD_THRESHOLD) return {
     ...base, title: 'Análise inconclusiva', topClass: 'Análise inconclusiva', severity: 'observe',
     summary: 'A imagem não foi suficientemente compatível com as folhas e classes conhecidas pela IA, ou a classificação ficou incerta. Nenhuma doença nem condição saudável foi atribuída a esta foto.',
     care: ['Fotografe uma única folha de perto, inteira no enquadramento, em boa luz e com fundo simples.', 'Use uma folha de uma das 14 culturas reconhecidas e tente outra foto nítida.', 'Se os sinais persistirem ou avançarem, peça uma avaliação agronômica e leve fotos da planta inteira.']
   };
-  const best = predictions[0], [crop, condition] = best.className.split('___'), healthy = condition === 'healthy';
-  const friendly = `${CROPS[crop] || crop}: ${CONDITIONS[condition] || condition.replaceAll('_', ' ')}`;
+  const best = predictions[0];
+  const measured = { ...base, topClass: best.className, confidence: best.probability, predictions };
+  const health = describePlantHealth(measured);
+  // Keep inconclusive results neutral in storage as well as on screen. The
+  // shared policy also interprets older saved records consistently.
+  if (health.status === 'inconclusive') return {
+    ...base, title: health.title, topClass: health.title, severity: 'observe',
+    summary: health.summary, care: health.care
+  };
   return {
-    ...base, title: `Semelhança visual — ${friendly}`, topClass: best.className, confidence: best.probability, predictions,
-    severity: healthy ? 'observe' : 'attention',
-    summary: healthy ? `A folha se aproxima da classe “${friendly}”. Isso não descarta problemas fora das classes do modelo nem avalia raízes, caule ou a saúde da planta inteira.` : `A foto teve maior compatibilidade com a classe “${friendly}”. Essa é uma hipótese visual para investigação, sem confirmação da causa dos sinais.`,
-    care: healthy
-      ? ['Acompanhe a planta nos próximos dias e compare novas fotos da mesma folha.', 'Observe também o caule, as raízes, o substrato e as condições de cultivo; a foto cobre apenas uma folha.', 'Procure orientação agronômica se aparecerem alterações ou se a planta continuar perdendo vigor.']
-      : ['Registre a evolução dos sinais e fotografe outras folhas e a planta inteira.', 'Confira as condições de cultivo e procure orientação agronômica para confirmar a causa antes de aplicar tratamentos.', 'Evite escolher defensivos ou descartar a planta apenas com base nesta classificação.']
+    ...measured, title: health.title,
+    severity: health.status === 'healthy' ? 'observe' : 'attention',
+    summary: health.summary, care: health.care
   };
 }
 

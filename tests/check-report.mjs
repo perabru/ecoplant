@@ -1,7 +1,8 @@
 // Rendering contracts only. All predictions below are fixtures, not plant recognition.
 import assert from 'node:assert/strict';
-import { reportHTML, formatPlantAIClassLabel } from '../dist/report.js';
+import { reportHTML as fullReportHTML, formatPlantAIClassLabel, downloadReport } from '../dist/report.js';
 import { evaluateSymptoms } from '../dist/triage.js';
+const reportHTML = (...args) => fullReportHTML(...args).replace(/<style>[\s\S]*?<\/style>/g, '');
 
 const record = {
   id: 'fixture-report', date: '2026-11-10T12:00:00Z', plantId: 'fixture-plant',
@@ -56,38 +57,7 @@ assert.match(guidedHTML, /Triagem guiada · sinais informados/);
 assert.match(guidedHTML, /Possível mancha foliar/);
 assert.doesNotMatch(guidedHTML, /<div class="rp-donut"|role="meter"/);
 
-// Plant AI must identify its own method and source, and display only supplied scores.
-const aiRecord = {
-  ...record,
-  result: {
-    method: 'plant-ai', title: 'Classe botânica de teste', topClass: 'Classe A',
-    confidence: 0.82, severity: 'observe',
-    modelName: 'Modelo de IA · fixture',
-    modelURL: 'https://huggingface.co/rodynaemad/plant-disease-dinov2-small',
-    modelLabels: ['Classe A', 'Classe B', 'Classe C'],
-    predictions: [{ className: 'Classe A', probability: 0.82 }, { className: 'Classe B', probability: 0.12 }, { className: 'Classe C', probability: 0.06 }],
-    summary: 'Resumo recebido da análise de teste.',
-    care: ['Orientação recebida da análise de teste.'],
-    disclaimer: 'Fixture: este registro não representa reconhecimento real.',
-    analyzedAt: '2026-11-10T12:00:00Z'
-  }
-};
-const aiHTML = reportHTML(aiRecord, plant);
-assert.match(aiHTML, /Análise de imagem por IA/);
-assert.match(aiHTML, /Classe botânica de teste/);
-assert.match(aiHTML, /Modelo de IA · fixture/);
-assert.match(aiHTML, /https:\/\/huggingface\.co\/rodynaemad\/plant-disease-dinov2-small/);
-assert.match(aiHTML, /Resumo recebido da análise de teste/);
-assert.match(aiHTML, /Orientação recebida da análise de teste/);
-assert.match(aiHTML, /Fixture: este registro não representa reconhecimento real/);
-assert.match(aiHTML, /<div class="rp-donut"/);
-assert.match(aiHTML, /aria-valuenow="82\.0"/);
-assert.equal((aiHTML.match(/role="meter"/g) || []).length, 3);
-assert.doesNotMatch(aiHTML, /Teachable Machine|Triagem guiada/);
-const unknownScope = structuredClone(aiRecord);
-delete unknownScope.result.modelLabels;
-assert.doesNotMatch(reportHTML(unknownScope, plant), /3 classes no treinamento/);
-
+// All 38 original classes use Portuguese presentation; stored labels remain untouched.
 // Coverage of the original DINOv2 config id2label list, independent of model execution.
 const plantVillageLabels = [
   'Apple___Apple_scab', 'Apple___Black_rot', 'Apple___Cedar_apple_rust', 'Apple___healthy',
@@ -115,36 +85,86 @@ assert.equal(formatPlantAIClassLabel('Tomato___Late_blight'), 'Tomateiro · requ
 assert.equal(formatPlantAIClassLabel('Potato___Early_blight'), 'Batateira · pinta preta');
 assert.equal(formatPlantAIClassLabel('Cultivo_novo___Classe_nova'), 'Cultivo novo · Classe nova');
 
-const localizedRecord = structuredClone(aiRecord);
-localizedRecord.result.topClass = 'Tomato___healthy';
-localizedRecord.result.title = 'Semelhança visual — tomateiro: folha saudável';
-localizedRecord.result.predictions = [
-  { className: 'Tomato___healthy', probability: 0.82 },
-  { className: 'Tomato___Late_blight', probability: 0.12 },
-  { className: 'Potato___Early_blight', probability: 0.06 }
-];
-localizedRecord.result.modelLabels = plantVillageLabels;
-const dataBeforeRendering = structuredClone(localizedRecord);
-const localizedHTML = reportHTML(localizedRecord, plant);
-assert.match(localizedHTML, /<h2>Semelhança visual — tomateiro: folha saudável<\/h2>/);
-assert.match(localizedHTML, /aria-label="Tomateiro · classe saudável"/);
-assert.match(localizedHTML, /Tomateiro · requeima/);
-assert.match(localizedHTML, /<small class="rp-class-original">Classe original: Tomato___healthy<\/small>/);
-assert.match(localizedHTML, /aria-valuenow="82\.0"/);
-assert.deepEqual(localizedRecord, dataBeforeRendering, 'Presentation must not rewrite original classes or probabilities saved/exported as JSON.');
-const rawTitle = { ...localizedRecord, result: { ...localizedRecord.result, title: 'Tomato___healthy' } };
-assert.match(reportHTML(rawTitle, plant), /<h2>Classe sugerida: Tomateiro · classe saudável<\/h2>/);
-const customTM = { ...localizedRecord, result: { ...localizedRecord.result, method: 'teachable-machine' } };
+
+// Real label names with fixture scores only: this tests presentation, not recognition.
+const aiRecord = {
+  ...record,
+  result: {
+    method: 'plant-ai', title: 'Antigo título da classe', topClass: 'Tomato___healthy',
+    confidence: 0.82, severity: 'observe',
+    modelName: 'Modelo de IA · fixture',
+    modelURL: 'https://huggingface.co/rodynaemad/plant-disease-dinov2-small',
+    modelLabels: plantVillageLabels,
+    predictions: [{ className: 'Tomato___healthy', probability: 0.82 }, { className: 'Tomato___Late_blight', probability: 0.12 }, { className: 'Potato___Early_blight', probability: 0.06 }],
+    summary: 'Resumo antigo não deve substituir o parecer atual.',
+    care: ['Orientação antiga não deve substituir o parecer atual.'],
+    disclaimer: 'Fixture: este registro não representa reconhecimento real.',
+    analyzedAt: '2026-11-10T12:00:00Z'
+  }
+};
+const dataBeforeRendering = structuredClone(aiRecord);
+const aiHTML = reportHTML(aiRecord, plant);
+assert.match(aiHTML, /Análise de imagem por IA/);
+assert.match(aiHTML, /data-health-status="healthy"/);
+assert.match(aiHTML, /<h2>Aparência saudável<\/h2>/);
+assert.match(aiHTML, /rp-verdict-healthy/);
+assert.match(aiHTML, /rp-status-healthy/);
+assert.match(aiHTML, /Planta reconhecida pelo modelo/);
+assert.match(aiHTML, /Compatível com a classe saudável/);
+assert.match(aiHTML, /Confiança na classificação/);
+assert.match(aiHTML, /Modelo de IA · fixture/);
+assert.match(aiHTML, /https:\/\/huggingface\.co\/rodynaemad\/plant-disease-dinov2-small/);
+assert.match(aiHTML, /Fixture: este registro não representa reconhecimento real/);
+assert.match(aiHTML, /<div class="rp-donut"/);
+assert.match(aiHTML, /aria-valuenow="82\.0"/);
+assert.equal((aiHTML.match(/role="meter"/g) || []).length, 3);
+assert.doesNotMatch(aiHTML, /Teachable Machine|Triagem guiada|Antigo título|Resumo antigo|Orientação antiga/);
+assert.match(aiHTML, /aria-label="Tomateiro · classe saudável"/);
+assert.match(aiHTML, /Tomateiro · requeima/);
+assert.match(aiHTML, /<small class="rp-class-original">Classe original: Tomato___healthy<\/small>/);
+assert.deepEqual(aiRecord, dataBeforeRendering, 'Rendering must preserve original values in the record.');
+
+// Known labels all produce the appropriate verdict rather than interpreting label text heuristically.
+for (const original of plantVillageLabels) {
+  const alternatives = plantVillageLabels.filter(label => label !== original).slice(0, 2);
+  const result = { ...aiRecord.result, topClass: original, confidence: 0.9, predictions: [{className: original, probability: 0.9}, {className: alternatives[0], probability: 0.06}, {className: alternatives[1], probability: 0.04}] };
+  const html = reportHTML({ ...aiRecord, result }, plant);
+  const status = original.endsWith('___healthy') ? 'healthy' : original.includes('Spider_mites') ? 'pest' : 'disease';
+  assert.match(html, new RegExp('data-health-status="' + status + '"'), original);
+  if (status === 'healthy') assert.match(html, /<h2>Aparência saudável<\/h2>/, original);
+  else if (status === 'pest') assert.match(html, /<h2>Sinais de possível praga<\/h2>/, original);
+  else assert.match(html, /<h2>Sinais de possível doença<\/h2>/, original);
+}
+const diseasedRecord = structuredClone(aiRecord);
+diseasedRecord.result.topClass = 'Apple___Apple_scab';
+diseasedRecord.result.confidence = 0.96;
+diseasedRecord.result.predictions = [{className:'Apple___Apple_scab',probability:0.96},{className:'Apple___healthy',probability:0.03},{className:'Apple___Black_rot',probability:0.01}];
+const diseaseHTML = reportHTML(diseasedRecord, plant);
+assert.match(diseaseHTML, /rp-verdict-danger/);
+assert.match(diseaseHTML, /rp-status-danger/);
+assert.match(diseaseHTML, /<dt>Possível doença<\/dt>/);
+assert.match(diseaseHTML, /sarna/i);
+assert.match(diseaseHTML, /macieira/i);
+assert.doesNotMatch(diseaseHTML, /<h2>Aparência saudável|doença confirmada|diagnóstico confirmado/i);
+
+const unknownScope = structuredClone(aiRecord);
+delete unknownScope.result.modelLabels;
+assert.doesNotMatch(reportHTML(unknownScope, plant), /38 classes no treinamento/);
+const rawTitle = { ...aiRecord, result: { ...aiRecord.result, title: 'Tomato___healthy' } };
+assert.match(reportHTML(rawTitle, plant), /<h2>Aparência saudável<\/h2>/);
+const customTM = { ...aiRecord, result: { ...aiRecord.result, method: 'teachable-machine' } };
 const customTMHTML = reportHTML(customTM, plant);
 assert.match(customTMHTML, /<h2>Tomato___healthy<\/h2>/);
 assert.match(customTMHTML, /aria-label="Tomato___healthy"/);
-assert.doesNotMatch(customTMHTML, /Tomateiro · classe saudável|rp-class-original">Classe original:/);
+assert.doesNotMatch(customTMHTML, /data-health-status=|Tomateiro · classe saudável|rp-class-original">Classe original:/);
 
 const assertInconclusive = result => {
   const html = reportHTML({ ...aiRecord, result }, plant);
   assert.match(html, /<h2>Análise inconclusiva<\/h2>/);
+  assert.match(html, /data-health-status="inconclusive"/);
   assert.match(html, /IA · análise inconclusiva/);
-  assert.doesNotMatch(html, /<div class="rp-donut"|role="meter"|Classe botânica de teste|Classe A/);
+  assert.match(html, /rp-status-neutral/);
+  assert.doesNotMatch(html, /<div class="rp-donut"|role="meter"|Antigo título|Resumo antigo|Orientação antiga|Classe original:|<dt>Possível doença<\/dt>/);
 };
 const omittedScores = { ...aiRecord.result, title: 'Análise inconclusiva', topClass: 'Análise inconclusiva' };
 delete omittedScores.confidence;
@@ -152,13 +172,15 @@ delete omittedScores.predictions;
 assertInconclusive(omittedScores);
 assertInconclusive({ ...aiRecord.result, severity: 'inconclusive' });
 assertInconclusive({ ...aiRecord.result, predictions: [] });
-for (const confidence of [undefined, null, '', '   ', NaN, Infinity, -1, 1.01, true]) {
-  assertInconclusive({ ...aiRecord.result, confidence });
-}
-assertInconclusive({ ...aiRecord.result, predictions: [{ className: 'Classe A', probability: null }] });
-const neutralLocalized = reportHTML({ ...localizedRecord, result: { ...localizedRecord.result, confidence: undefined } }, plant);
-assert.match(neutralLocalized, /<h2>Análise inconclusiva<\/h2>/);
-assert.doesNotMatch(neutralLocalized, /<div class="rp-donut"|role="meter"|Classe original:|Tomato___healthy|Tomateiro · requeima/);
+for (const confidence of [undefined, null, '', '   ', NaN, Infinity, -1, 1.01, true]) assertInconclusive({ ...aiRecord.result, confidence });
+assertInconclusive({ ...aiRecord.result, topClass:'Unknown___healthy', confidence:0.99, predictions:[{className:'Unknown___healthy', probability:0.99}] });
+assertInconclusive({ ...aiRecord.result, confidence:0.6, predictions:[{className:'Tomato___healthy',probability:0.6},{className:'Tomato___Late_blight',probability:0.3},{className:'Tomato___Bacterial_spot',probability:0.1}] });
+assertInconclusive({ ...aiRecord.result, predictions:[{className:'Tomato___Late_blight',probability:0.82},{className:'Tomato___healthy',probability:0.12},{className:'Potato___Early_blight',probability:0.06}] });
+assertInconclusive({ ...aiRecord.result, predictions: [{ className: 'Tomato___healthy', probability: null }] });
+const staleDisease = { ...diseasedRecord.result, title:'Sarna antiga', summary:'A planta está doente segundo a análise antiga.', care:['Tratar a sarna antiga.'], confidence:0.6, predictions:[{className:'Apple___Apple_scab',probability:0.6},{className:'Apple___healthy',probability:0.3},{className:'Apple___Black_rot',probability:0.1}] };
+const staleHTML = reportHTML({...diseasedRecord,result:staleDisease}, plant);
+assertInconclusive(staleDisease);
+assert.doesNotMatch(staleHTML, /Sarna antiga|A planta está doente|Tratar a sarna|Apple___Apple_scab|<div class="rp-donut"|role="meter"/);
 
 // Nullable records/plant references are safe even after a plant was removed.
 assert.doesNotThrow(() => reportHTML());
@@ -190,8 +212,42 @@ unsafeAI.result.modelURL = 'javascript:alert(1)';
 unsafeAI.result.predictions[0].className = '<img src=x onerror=alert(1)>';
 const escapedAI = reportHTML(unsafeAI, { name: '<script>name</script>' }, { displayName: '<img src=x>' });
 assert.doesNotMatch(escapedAI, /<svg onload=|<img src=x|<script>|<iframe /);
-assert.match(escapedAI, /&lt;svg onload=/);
-assert.match(escapedAI, /&lt;script&gt;alert/);
+assert.match(escapedAI, /&lt;script&gt;name/);
+assert.match(escapedAI, /&lt;img src=x&gt;/);
+assert.match(escapedAI, /&lt;iframe src=javascript:alert\(1\)&gt;/);
+assert.match(escapedAI, /<h2>Análise inconclusiva<\/h2>/);
 assert.match(escapedAI, /Endereço do modelo não informado/);
 
-console.log('Report checks passed: photographic records, nullable data, AI provenance, 38 Portuguese labels with raw data preserved, inconclusive outputs, PDF/new-photo actions, TM history and escaping. Fixture data only; no recognition test.');
+// JSON export keeps the original measurements while exposing the current interpretation.
+let exportedBlob;
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
+const originalDocument = globalThis.document;
+URL.createObjectURL = blob => { exportedBlob = blob; return 'blob:report-fixture'; };
+URL.revokeObjectURL = () => {};
+globalThis.document = { createElement: () => ({ style: {}, click(){}, remove(){} }), body: { appendChild(){} } };
+try {
+  const staleRecord = {...diseasedRecord, result:staleDisease};
+  const beforeExport = structuredClone(staleRecord);
+  const downloaded = downloadReport(staleRecord, plant);
+  const envelope = JSON.parse(await exportedBlob.text());
+  assert.equal(envelope.assessment.status, 'inconclusive');
+  assert.equal(envelope.assessment.condition, '');
+  assert.equal(envelope.assessment.policy.version, 'ecoplant-health-v1');
+  assert.equal(envelope.assessment.policy.minConfidence, 0.75);
+  assert.equal(envelope.assessment.policy.minMargin, 0.15);
+  assert.equal(envelope.report.result.topClass, 'Apple___Apple_scab');
+  assert.equal(envelope.report.result.confidence, 0.6);
+  assert.deepEqual(envelope.report, beforeExport);
+  assert.deepEqual(staleRecord, beforeExport);
+  assert(downloaded.fileName.endsWith('.json'));
+  assert(downloaded.size > 0);
+  downloadReport(record, plant);
+  assert.equal('assessment' in JSON.parse(await exportedBlob.text()), false, 'TM export must not invent an EcoPlant health verdict.');
+} finally {
+  URL.createObjectURL = originalCreateObjectURL;
+  URL.revokeObjectURL = originalRevokeObjectURL;
+  if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
+}
+
+console.log('Report checks passed: clear healthy/disease/pest verdicts across 38 known classes, neutral abstention, safe stale records, consistent AI presentation, source and raw data preservation, photographic records, PDF/new-photo actions, TM legacy and escaping. Fixture scores only, not model recognition.');
