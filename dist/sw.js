@@ -1,5 +1,5 @@
 /* App shell only. Firebase user records remain in the UID-scoped IndexedDB store. */
-const VERSION = 'v7-ecoplant-teachable-model';
+const VERSION = 'v8-ecoplant-model-photo-upload';
 const PREFIX = 'ecoplant-';
 const SHELL_CACHE = `${PREFIX}shell-${VERSION}`;
 const SDK_CACHE = `${PREFIX}sdk-${VERSION}`;
