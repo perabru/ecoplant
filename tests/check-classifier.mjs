@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { File } from 'node:buffer';
+import fs from 'node:fs';
 
 // Contract/lifecycle tests with explicit TM and network mocks. No trained weights
 // are executed here; model accuracy requires the real EcoPlant export.
 const moduleURL = new URL('../dist/classifier.js', import.meta.url);
+const productionSource = fs.readFileSync(moduleURL, 'utf8');
 const bundledURL = new URL('./my_model/', moduleURL).href;
 const labels = ['Saudável', 'Mancha foliar'];
 const metadata = { labels, packageName: '@teachablemachine/image', modelName: 'Modelo de teste' };
@@ -42,15 +44,39 @@ function exportedFiles({ meta = metadata, graph = topology, weightName = 'weight
   ];
 }
 
+function responseFor(url, options = {}) {
+  const status = options.status ?? 200;
+  const value = options.json ?? (url.endsWith('/metadata.json') ? metadata : topology);
+  const bytes = Uint8Array.from(options.bytes ?? [1, 2, 3, 4]);
+  const headers = { 'content-length': '100', ...(options.headers || {}) };
+  return {
+    ok: status >= 200 && status < 300, status, url: options.url ?? url,
+    headers: { get: name => headers[name.toLowerCase()] ?? null },
+    text: async () => options.text ?? JSON.stringify(value),
+    arrayBuffer: async () => bytes.buffer
+  };
+}
+
 async function fresh(options = {}) {
-  const calls = { fetch: [], load: [], files: [], models: [] };
-  globalThis.tf = { loadLayersModel() {}, ready: async () => {}, setBackend: async () => {} };
-  globalThis.tmImage = {
-    async load(url, meta) {
-      calls.load.push({ url, metadata: meta });
-      const model = options.load ? await options.load(url, meta) : mockModel(options.model);
+  const calls = { fetch: [], load: [], files: [], models: [], wrappers: [] };
+  globalThis.tf = {
+    io: { fromMemory: artifacts => ({ artifacts }) },
+    async loadLayersModel(handler, loadOptions) {
+      calls.load.push({ artifacts: handler.artifacts, options: loadOptions });
+      const model = options.load ? await options.load(handler.artifacts) : mockModel(options.model);
       calls.models.push(model);
-      return model;
+      return { dispose: () => model.model.dispose(), wrapper: model };
+    },
+    ready: async () => {}, setBackend: async () => {}
+  };
+  globalThis.tmImage = {
+    load: () => { throw new Error('Hidden network through tmImage.load is forbidden in this contract.'); },
+    CustomMobileNet: class {
+      constructor(layers, meta) {
+        calls.wrappers.push({ layers, metadata: meta });
+        if (options.wrapperError) throw options.wrapperError;
+        return layers.wrapper;
+      }
     },
     async loadFromFiles(modelFile, weightsFile, metadataFile) {
       calls.files.push({ modelFile, weightsFile, metadataFile });
@@ -62,13 +88,17 @@ async function fresh(options = {}) {
   globalThis.fetch = async (url, fetchOptions) => {
     calls.fetch.push({ url, options: fetchOptions });
     if (options.fetch) return options.fetch(url, fetchOptions);
-    return {
-      ok: true, status: 200, url: options.redirect ? options.redirect(url) : url,
-      headers: { get: () => '100' },
-      json: async () => structuredClone(url.endsWith('/metadata.json') ? (options.metadata || metadata) : (options.topology || topology))
-    };
+    return responseFor(url, {
+      url: options.redirect ? options.redirect(url) : url,
+      json: url.endsWith('/metadata.json') ? (options.metadata || metadata) : (options.topology || topology)
+    });
   };
-  const api = await import(`${moduleURL.href}?case=${++instance}`);
+  // Inject configuration into an isolated in-memory module, never production files.
+  const fixtureSource = productionSource
+    .replace("import { MODEL_CONFIG } from './model-config.js';", `const MODEL_CONFIG = Object.freeze({bundledModelAvailable:${options.bundledAvailable ?? true}});`)
+    .replaceAll('import.meta.url', JSON.stringify(moduleURL.href));
+  assert(!fixtureSource.includes("from './model-config.js'"));
+  const api = await import('data:text/javascript;base64,' + Buffer.from(`// isolated fixture ${++instance}\n${fixtureSource}`).toString('base64'));
   return { api, calls };
 }
 
@@ -102,7 +132,9 @@ await check('Bundled loading uses the existing photo pipeline and copies metadat
   const info = await api.loadPlantModel(api.BUNDLED_MODEL_URL);
   assert.equal(info.source, 'bundled');
   assert.equal(info.modelURL, bundledURL);
-  assert.deepEqual(calls.fetch.map(call => call.url).sort(), [bundledURL + 'metadata.json', bundledURL + 'model.json'].sort());
+  assert.deepEqual(calls.fetch.map(call => call.url).sort(), [bundledURL + 'metadata.json', bundledURL + 'model.json', bundledURL + 'weights.bin'].sort());
+  assert.equal(calls.load[0].options.strict, true);
+  assert.deepEqual(Array.from(new Uint8Array(calls.load[0].artifacts.weightData)), [1, 2, 3, 4]);
   info.labels[0] = 'changed'; info.metadata.labels[1] = 'changed';
   const result = await api.classifyPlant(canvas, api.BUNDLED_MODEL_URL);
   assert.equal(result.method, 'teachable-machine');
@@ -113,12 +145,20 @@ await check('Bundled loading uses the existing photo pipeline and copies metadat
   assert(!('source' in result), 'Firebase result schema must not acquire an unapproved property');
 });
 
+await check('Unavailable bundled configuration fails before all network and library work', async () => {
+  const { api, calls } = await fresh({ bundledAvailable: false });
+  assert.equal(api.validateModelURL(api.BUNDLED_MODEL_URL), bundledURL);
+  await assert.rejects(api.loadPlantModel(api.BUNDLED_MODEL_URL), error => {
+    assert.equal(error.code, 'classifier/model-not-configured');
+    assert.match(error.message, /Perfil/); assert.match(error.message, /Teachable Machine/); return true;
+  });
+  await assert.rejects(api.classifyPlant(canvas, api.BUNDLED_MODEL_URL), { code: 'classifier/model-not-configured' });
+  assert.equal(calls.fetch.length, 0); assert.equal(calls.load.length, 0); assert.equal(calls.files.length, 0);
+});
+
 await check('Missing bundled files produce actionable import/link instructions and permit retry', async () => {
   let missing = true;
-  const { api, calls } = await fresh({ fetch: async url => ({
-    ok: !missing, status: missing ? 404 : 200, url, headers: { get: () => '100' },
-    json: async () => url.endsWith('metadata.json') ? structuredClone(metadata) : structuredClone(topology)
-  }) });
+  const { api, calls } = await fresh({ fetch: async url => responseFor(url, { status: missing ? 404 : 200 }) });
   await assert.rejects(api.loadPlantModel(api.BUNDLED_MODEL_URL), error => {
     assert.equal(error.code, 'classifier/model-files-missing');
     assert.match(error.message, /Perfil/); assert.match(error.message, /Teachable Machine/); return true;
@@ -137,6 +177,125 @@ await check('Hosted multi-shard models and official storage redirects remain sup
   assert.equal(calls.load.length, 1);
   const bad = await fresh({ redirect: () => 'https://example.com/model.json' });
   await assert.rejects(bad.api.loadPlantModel('https://teachablemachine.withgoogle.com/models/redirect/'), { code: 'classifier/invalid-model' });
+});
+
+await check('503 recovery covers JSON and weights using only the same official model and filename', async () => {
+  const base = 'https://teachablemachine.withgoogle.com/models/retry_same-ID/';
+  const storage = 'https://storage.googleapis.com/tm-model/retry_same-ID/';
+  const seen = new Map();
+  const { api, calls } = await fresh({ fetch: async url => {
+    const file = url.split('/').pop();
+    const attempt = (seen.get(file) || 0) + 1; seen.set(file, attempt);
+    assert([base + file, storage + file].includes(url));
+    return responseFor(url, { status: attempt === 1 ? 503 : 200, headers: { 'retry-after': '0' } });
+  } });
+  const info = await api.loadPlantModel(base);
+  assert.equal(info.modelURL, base, 'Mirror must not change analysis provenance');
+  assert.equal(info.source, 'hosted');
+  assert.deepEqual(Object.fromEntries(seen), { 'metadata.json': 2, 'model.json': 2, 'weights.bin': 2 });
+  assert.equal(calls.load.length, 1);
+  for (const file of seen.keys()) {
+    assert.deepEqual(calls.fetch.filter(call => call.url.endsWith('/' + file)).map(call => call.url), [base + file, storage + file]);
+  }
+});
+
+await check('Bundled transient failures retry the configured local resource without a mirror', async () => {
+  let failures = 1;
+  const { api, calls } = await fresh({ fetch: async url => responseFor(url, {
+    status: url.endsWith('/model.json') && failures-- > 0 ? 503 : 200
+  }) });
+  await api.loadPlantModel(api.BUNDLED_MODEL_URL);
+  assert(calls.fetch.every(call => call.url.startsWith(bundledURL)));
+  assert.equal(calls.fetch.filter(call => call.url.endsWith('/model.json')).length, 2);
+});
+
+await check('Persistent JSON and weights 503 errors stop after three attempts', async () => {
+  for (const failingFile of ['model.json', 'weights.bin']) {
+    const { api, calls } = await fresh({ fetch: async url => responseFor(url, { status: url.endsWith('/' + failingFile) ? 503 : 200 }) });
+    await assert.rejects(api.loadPlantModel('https://teachablemachine.withgoogle.com/models/outage/'), error => {
+      assert.equal(error.code, 'classifier/model-temporarily-unavailable');
+      assert.equal(error.status, 503); assert.equal(error.resource, failingFile); return true;
+    });
+    assert.equal(calls.fetch.filter(call => call.url.endsWith('/' + failingFile)).length, 3);
+    assert.equal(calls.load.length, 0);
+  }
+});
+
+await check('Network failure retries the exact official storage destination', async () => {
+  const base = 'https://teachablemachine.withgoogle.com/models/network_case/';
+  const { api, calls } = await fresh({ fetch: async url => {
+    if (url === base + 'model.json') throw new TypeError('Explicit mocked network failure');
+    return responseFor(url);
+  } });
+  await api.loadPlantModel(base);
+  assert.deepEqual(calls.fetch.filter(call => call.url.endsWith('/model.json')).map(call => call.url), [
+    base + 'model.json', 'https://storage.googleapis.com/tm-model/network_case/model.json'
+  ]);
+});
+
+await check('Denied, missing and malformed resources are never retried or mirrored', async () => {
+  for (const status of [401, 403, 404]) {
+    const base = `https://teachablemachine.withgoogle.com/models/status_${status}/`;
+    const { api, calls } = await fresh({ fetch: async url => responseFor(url, { status: url.endsWith('/model.json') ? status : 200 }) });
+    await assert.rejects(api.loadPlantModel(base), { code: status === 404 ? 'classifier/model-unavailable' : 'classifier/model-access-denied' });
+    assert.equal(calls.fetch.filter(call => call.url.endsWith('/model.json')).length, 1);
+    assert(calls.fetch.every(call => call.url.startsWith(base)));
+  }
+  const invalid = await fresh({ fetch: async url => responseFor(url, { text: url.endsWith('/model.json') ? '<html>not JSON</html>' : undefined }) });
+  await assert.rejects(invalid.api.loadPlantModel('https://teachablemachine.withgoogle.com/models/bad_json/'), { code: 'classifier/invalid-model' });
+  assert.equal(invalid.calls.fetch.filter(call => call.url.endsWith('/model.json')).length, 1);
+  const redirected = await fresh({ redirect: url => url.replace('/models/', '/tm-model/').replace('teachablemachine.withgoogle.com', 'storage.googleapis.com').replace('/exact_id/', '/another_id/') });
+  await assert.rejects(redirected.api.loadPlantModel('https://teachablemachine.withgoogle.com/models/exact_id/'), { code: 'classifier/invalid-model' });
+});
+
+await check('429 retries stay on the same endpoint and do not use storage to avoid the limit', async () => {
+  const base = 'https://teachablemachine.withgoogle.com/models/rate_limit/';
+  let failures = 1;
+  const { api, calls } = await fresh({ fetch: async url => responseFor(url, {
+    status: url.endsWith('/model.json') && failures-- > 0 ? 429 : 200,
+    headers: { 'retry-after': '0' }
+  }) });
+  await api.loadPlantModel(base);
+  assert.equal(calls.fetch.filter(call => call.url.endsWith('/model.json')).length, 2);
+  assert(calls.fetch.every(call => call.url.startsWith(base)));
+});
+
+await check('Cancellation interrupts Retry-After waits without sending another request', async () => {
+  const controller = new AbortController();
+  const { api, calls } = await fresh({ fetch: async url => responseFor(url, {
+    status: url.endsWith('/model.json') ? 503 : 200, headers: { 'retry-after': '2' }
+  }) });
+  const began = performance.now();
+  await assert.rejects(api.loadPlantModel('https://teachablemachine.withgoogle.com/models/cancel_wait/', (_message, stage) => {
+    if (stage === 'retrying') setTimeout(() => controller.abort(), 10);
+  }, { signal: controller.signal }), { code: 'classifier/cancelled' });
+  assert(performance.now() - began < 1000, 'Abort should interrupt the two-second server wait');
+  assert.equal(calls.fetch.filter(call => call.url.endsWith('/model.json')).length, 1);
+  assert.equal(calls.load.length, 0);
+});
+
+await check('Shard order and weight specs reach fromMemory intact without hidden network', async () => {
+  const graph = { ...topology, weightsManifest: [
+    { paths: ['part1.bin', 'part2.bin'], weights: [{ name: 'first', shape: [1], dtype: 'float32' }] },
+    { paths: ['part3.bin'], weights: [{ name: 'second', shape: [1], dtype: 'float32' }] }
+  ] };
+  const bytes = { 'part1.bin': [1, 2], 'part2.bin': [3, 4], 'part3.bin': [5, 6, 7, 8] };
+  const { api, calls } = await fresh({ fetch: async url => responseFor(url, {
+    json: url.endsWith('/metadata.json') ? metadata : graph,
+    bytes: bytes[url.split('/').pop()]
+  }) });
+  await api.loadPlantModel('https://teachablemachine.withgoogle.com/models/shard_order/');
+  assert.equal(calls.fetch.length, 5);
+  assert.equal(calls.load.length, 1);
+  assert.deepEqual(calls.load[0].artifacts.weightSpecs, graph.weightsManifest.flatMap(group => group.weights));
+  assert.deepEqual(Array.from(new Uint8Array(calls.load[0].artifacts.weightData)), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(calls.load[0].options.strict, true);
+});
+
+await check('Wrapper construction failure releases the already loaded LayersModel', async () => {
+  const { api, calls } = await fresh({ wrapperError: new Error('Explicit constructor failure') });
+  await assert.rejects(api.loadPlantModel('https://teachablemachine.withgoogle.com/models/wrapper_error/'), { code: 'classifier/model-load-failed' });
+  assert.equal(calls.models[0].disposed, 1);
 });
 
 await check('FileList import checks filenames, calls the correct TM API order and stays in memory', async () => {

@@ -50,7 +50,11 @@ Treine um projeto de **imagem**, com pelo menos duas classes, e reserve imagens 
 
 Para modelos hospedados ou empacotados, opcionalmente informe o nome exato da classe saudável; o aplicativo confere se ela existe no modelo. Relatórios de arquivos importados preservam os nomes e as probabilidades das classes, sem reinterpretá-los pelas configurações de uma importação posterior. O HTML de exemplo fornecido pelo Teachable Machine **não contém os pesos treinados** e não substitui os arquivos exportados.
 
-A pasta está preparada, mas **nenhum modelo real está incluído neste repositório**. Para concluir a conexão e avaliar o reconhecimento, é necessário fornecer o ZIP exportado em TensorFlow.js ou a URL pública do modelo.
+A pasta está preparada, mas **nenhum modelo real está incluído neste repositório**. Para concluir a conexão e avaliar o reconhecimento, é necessário fornecer o ZIP exportado em TensorFlow.js ou a URL pública do modelo. Enquanto isso, a identificação automática fica desabilitada e não tenta baixar arquivos ausentes. A triagem por sinais só é executada quando escolhida pelo usuário.
+
+`npm run prepare:pages` gera `dist/model-config.js` e sua cópia publicada com a disponibilidade real do modelo. A preparação só habilita o modelo do EcoPlant quando todos os arquivos do manifesto estão presentes; um pacote parcial ou inválido interrompe a publicação.
+
+Se um modelo configurado responder com uma falha temporária, o carregador repete as transferências de JSON e pesos até três vezes por arquivo, dentro do prazo total de 45 segundos. Para modelos hospedados no Teachable Machine, pode utilizar o destino oficial de armazenamento do mesmo modelo após uma falha de rede/servidor. Erros de permissão, arquivos inexistentes ou conteúdo inválido continuam sendo informados. A foto e as observações permanecem disponíveis para tentar novamente ou conectar os arquivos locais.
 
 O processamento da imagem acontece no navegador. As bibliotecas e os modelos hospedados precisam ser baixados com internet. A confiança expressa a escolha entre as classes treinadas e não mede a saúde nem a gravidade de uma condição. O salvamento dos dados e relatórios mantém o fluxo atual do aplicativo: Firebase para a conta ou armazenamento do navegador no modo local.
 

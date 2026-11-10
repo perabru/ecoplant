@@ -28,6 +28,7 @@
     "index.html",
     "local-db.js",
     "manifest.webmanifest",
+    "model-config.js",
     "my_model/LEIA-ME.txt",
     "pwa.js",
     "report.js",

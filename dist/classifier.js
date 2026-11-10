@@ -3,9 +3,15 @@
  * No default model or synthetic prediction is provided.
  * Official API: googlecreativelab/teachablemachine-community/libraries/image.
  */
+import { MODEL_CONFIG } from './model-config.js';
+
 const TF_URL = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
 const TM_URL = 'https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js';
 const LOAD_TIMEOUT = 45000;
+const MAX_RESOURCE_ATTEMPTS = 3;
+const MAX_JSON_BYTES = 8 * 1024 * 1024;
+const MAX_WEIGHT_BYTES = 128 * 1024 * 1024;
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 export const BUNDLED_MODEL_URL = './my_model/';
 export const IMPORTED_MODEL_URL = 'local:ecoplant-model';
 const bundledModelURL = new URL(BUNDLED_MODEL_URL, import.meta.url).href;
@@ -97,8 +103,8 @@ function loadScript(url, isReady) {
 async function ensureLibraries() {
   if (!librariesPromise) {
     librariesPromise = (async () => {
-      await loadScript(TF_URL, () => Boolean(globalThis.tf?.loadLayersModel));
-      await loadScript(TM_URL, () => Boolean(globalThis.tmImage?.load));
+      await loadScript(TF_URL, () => Boolean(globalThis.tf?.loadLayersModel && globalThis.tf?.io?.fromMemory));
+      await loadScript(TM_URL, () => Boolean(globalThis.tmImage?.CustomMobileNet && globalThis.tmImage?.loadFromFiles));
       try {
         await globalThis.tf.ready();
       } catch {
@@ -116,35 +122,105 @@ async function ensureLibraries() {
   return librariesPromise;
 }
 
-async function readJSON(url, signal, label, source) {
-  let response;
-  try {
-    // Published TM URLs legitimately redirect to storage.googleapis.com/tm-model/….
-    response = await fetch(url, { signal, mode: 'cors', credentials: 'omit', cache: 'no-cache', redirect: 'follow' });
-  } catch (error) {
+function officialStorageURL(url, source) {
+  if (source !== 'hosted') return null;
+  const parsed = new URL(url);
+  if (parsed.origin !== 'https://teachablemachine.withgoogle.com') return null;
+  const path = parsed.pathname.match(/^\/models\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9_.-]+)$/);
+  return path ? `https://storage.googleapis.com/tm-model/${path[1]}/${path[2]}` : null;
+}
+
+function validateResourceDestination(url, response, source) {
+  if (!response.url || response.url === url || response.url === officialStorageURL(url, source)) return;
+  throw failure('invalid-model', 'O arquivo do modelo redirecionou para um endereço inesperado. Confira o link publicado no Teachable Machine.');
+}
+
+function resourceError(status, label, source) {
+  let error;
+  if (status === 404) {
+    error = source === 'bundled' ? missingModelFiles() : failure('model-unavailable', 'Modelo ou arquivo não encontrado. Exporte como TensorFlow.js, publique no Teachable Machine e confira o link.');
+  } else if (status === 401 || status === 403) {
+    error = failure('model-access-denied', 'O servidor não permitiu acessar este modelo. Confira se o link foi publicado ou importe os arquivos no Perfil.');
+  } else if (RETRYABLE_STATUS.has(status)) {
+    error = failure('model-temporarily-unavailable', `O servidor do modelo está temporariamente indisponível (HTTP ${status}). Tente novamente em alguns instantes ou importe os arquivos no Perfil.`);
+  } else {
+    error = failure('model-unavailable', `Não foi possível acessar o arquivo ${label} (HTTP ${status}). Confira o link ou importe os arquivos no Perfil.`);
+  }
+  error.status = status;
+  error.resource = label;
+  return error;
+}
+
+function retryDelay(response, attempt) {
+  const fallback = 350 * (2 ** attempt);
+  const value = response?.headers?.get('Retry-After');
+  if (!value) return fallback;
+  const seconds = Number(value);
+  const requested = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(requested) ? Math.min(4000, Math.max(fallback, requested)) : fallback;
+}
+
+function waitForRetry(delay, signal) {
+  if (signal.aborted) return Promise.reject(signal.reason || cancellation());
+  return new Promise((resolve, reject) => {
+    const finish = error => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      if (error) reject(error); else resolve();
+    };
+    const onAbort = () => finish(signal.reason || cancellation());
+    const timer = setTimeout(() => finish(), delay);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/** One bounded retry policy for metadata, topology and every weights shard. */
+async function fetchModelResource(url, signal, label, source, kind, announce) {
+  let target = url;
+  const storageURL = officialStorageURL(url, source);
+  for (let attempt = 0; attempt < MAX_RESOURCE_ATTEMPTS; attempt += 1) {
     if (signal.aborted) throw signal.reason || cancellation();
-    throw failure('network', `Não foi possível acessar ${label}. Confira sua conexão e se o modelo foi publicado.`, error);
-  }
-  if (!response.ok) {
-    if (source === 'bundled' && response.status === 404) throw missingModelFiles();
-    throw failure('model-unavailable', response.status === 404
-      ? 'Modelo não encontrado. Exporte como TensorFlow.js, publique no Teachable Machine e confira o link.'
-      : `O servidor do modelo respondeu com erro ${response.status}. Tente novamente mais tarde.`);
-  }
-  if (response.url) {
-    const requested = new URL(url);
-    const delivered = new URL(response.url);
-    const canonicalPath = requested.pathname.replace(/^\/models\//, '/tm-model/');
-    if (delivered.href !== requested.href && !(source === 'hosted' && delivered.origin === 'https://storage.googleapis.com'
-      && delivered.pathname === canonicalPath && !delivered.search && !delivered.hash)) {
-      throw failure('invalid-model', 'O link do modelo redirecionou para um endereço inesperado. Publique novamente pelo Teachable Machine.');
+    let response;
+    let error;
+    let retry = false;
+    let useStorage = false;
+    try {
+      response = await abortable(fetch(target, {
+        signal, mode: 'cors', credentials: 'omit', cache: 'no-cache', redirect: 'follow'
+      }), signal);
+      validateResourceDestination(url, response, source);
+      if (!response.ok) {
+        error = resourceError(response.status, label, source);
+        retry = RETRYABLE_STATUS.has(response.status);
+        // The mirror is the exact public destination of official TM redirects.
+        // Never change endpoint to work around denied access, a missing file or 429.
+        useStorage = response.status >= 500 && response.status <= 599;
+      } else {
+        const limit = kind === 'json' ? MAX_JSON_BYTES : MAX_WEIGHT_BYTES;
+        if (Number(response.headers.get('Content-Length')) > limit) throw failure('invalid-model', `O arquivo ${label} excede o tamanho permitido para este modelo.`);
+        if (kind === 'json') {
+          const text = await abortable(response.text(), signal);
+          if (new TextEncoder().encode(text).byteLength > limit) throw failure('invalid-model', `O arquivo ${label} é maior que o esperado para um modelo de imagem.`);
+          try { return JSON.parse(text); } catch (cause) {
+            throw failure('invalid-model', `O arquivo ${label} não contém JSON válido. Exporte novamente como TensorFlow.js.`, cause);
+          }
+        }
+        const data = await abortable(response.arrayBuffer(), signal);
+        if (!data.byteLength || data.byteLength > limit) throw failure('invalid-model', `O arquivo de pesos ${label} está vazio ou excede o tamanho permitido.`);
+        return data;
+      }
+    } catch (cause) {
+      if (signal.aborted) throw signal.reason || cancellation();
+      if (cause?.code?.startsWith('classifier/')) throw cause;
+      error = failure('network', `Não foi possível transferir ${label}. Confira sua conexão, tente novamente ou importe os arquivos no Perfil.`, cause);
+      error.resource = label;
+      retry = true;
+      useStorage = true;
     }
-  }
-  const size = Number(response.headers.get('Content-Length'));
-  if (size > 8 * 1024 * 1024) throw failure('invalid-model', `O arquivo ${label} é maior que o esperado para um modelo de imagem.`);
-  try { return await response.json(); } catch (error) {
-    if (signal.aborted) throw signal.reason || cancellation();
-    throw failure('invalid-model', `O arquivo ${label} não contém um modelo válido. Publique novamente como TensorFlow.js.`, error);
+    if (!retry || attempt === MAX_RESOURCE_ATTEMPTS - 1) throw error;
+    if (storageURL && useStorage) target = storageURL;
+    report(announce, `Tentando carregar ${label} novamente (${attempt + 2}/${MAX_RESOURCE_ATTEMPTS})…`, 'retrying');
+    await waitForRetry(retryDelay(response, attempt), signal);
   }
 }
 
@@ -163,10 +239,15 @@ function validateMetadata(metadata, topology) {
     throw failure('invalid-model', 'O modelo de imagem está incompleto. Exporte e publique novamente como TensorFlow.js.');
   }
   // Only published model-local shards: never follow arbitrary weight URLs.
+  const paths = new Set();
   for (const group of topology.weightsManifest) {
-    if (!Array.isArray(group.paths) || !group.paths.length || group.paths.some(path =>
+    if (!group || !Array.isArray(group.paths) || !group.paths.length || !Array.isArray(group.weights) || group.paths.some(path =>
       typeof path !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(path) || path === '.' || path === '..')) {
       throw failure('invalid-model', 'O modelo contém caminhos de pesos incompatíveis. Publique o projeto diretamente pelo Teachable Machine.');
+    }
+    for (const path of group.paths) {
+      if (paths.has(path)) throw failure('invalid-model', 'O manifesto repete um arquivo de pesos. Exporte o modelo novamente.');
+      paths.add(path);
     }
   }
   return [...metadata.labels];
@@ -230,6 +311,44 @@ function publicModelInfo(loaded) {
   };
 }
 
+async function loadDownloadedModel(baseURL, topology, metadata, signal, source, announce) {
+  const weightSpecs = [];
+  const buffers = [];
+  let totalBytes = 0;
+  for (const group of topology.weightsManifest) {
+    weightSpecs.push(...group.weights);
+    for (const path of group.paths) {
+      const buffer = await fetchModelResource(`${baseURL}${path}`, signal, path, source, 'weights', announce);
+      totalBytes += buffer.byteLength;
+      if (totalBytes > MAX_WEIGHT_BYTES) throw failure('invalid-model', 'Os pesos do modelo excedem o limite de 128 MB. Exporte um modelo menor.');
+      buffers.push(buffer);
+    }
+  }
+  if (signal.aborted) throw signal.reason || cancellation();
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const buffer of buffers) {
+    bytes.set(new Uint8Array(buffer), offset);
+    offset += buffer.byteLength;
+  }
+  const artifacts = {
+    modelTopology: topology.modelTopology,
+    weightSpecs, weightData: bytes.buffer,
+    format: topology.format, generatedBy: topology.generatedBy, convertedBy: topology.convertedBy
+  };
+  if (topology.trainingConfig) artifacts.trainingConfig = topology.trainingConfig;
+  if (topology.userDefinedMetadata) artifacts.userDefinedMetadata = topology.userDefinedMetadata;
+  // Use only the JSON and shard bytes already validated above: no second fetch.
+  const layers = await globalThis.tf.loadLayersModel(globalThis.tf.io.fromMemory(artifacts), { strict: true });
+  try {
+    if (signal.aborted) throw signal.reason || cancellation();
+    return new globalThis.tmImage.CustomMobileNet(layers, metadata);
+  } catch (error) {
+    try { layers.dispose(); } catch { /* Failed construction must release weights. */ }
+    throw error;
+  }
+}
+
 function createEntry(baseURL, callback) {
   const source = baseURL === bundledModelURL ? 'bundled' : 'hosted';
   const controller = new AbortController();
@@ -241,21 +360,21 @@ function createEntry(baseURL, callback) {
     try {
       announce(source === 'bundled' ? 'Conferindo o modelo EcoPlant…' : 'Conferindo o modelo publicado…', 'checking');
       const [metadata, topology] = await Promise.all([
-        readJSON(`${baseURL}metadata.json`, controller.signal, 'metadata.json', source),
-        readJSON(`${baseURL}model.json`, controller.signal, 'model.json', source)
+        fetchModelResource(`${baseURL}metadata.json`, controller.signal, 'metadata.json', source, 'json', announce),
+        fetchModelResource(`${baseURL}model.json`, controller.signal, 'model.json', source, 'json', announce)
       ]);
       const labels = validateMetadata(metadata, topology);
       announce('Preparando o processamento da imagem…', 'libraries');
       await abortable(ensureLibraries(), controller.signal);
       announce('Baixando os pesos do seu modelo…', 'weights');
-      entry.loaded = await verifyLoadedModel(globalThis.tmImage.load(`${baseURL}model.json`, metadata), entry, labels, metadata, baseURL, source);
+      entry.loaded = await verifyLoadedModel(loadDownloadedModel(baseURL, topology, metadata, controller.signal, source, announce), entry, labels, metadata, baseURL, source);
       announce('Modelo pronto para identificar.', 'ready');
       return entry.loaded;
     } catch (error) {
       if (models.get(baseURL) === entry) models.delete(baseURL);
       if (controller.signal.aborted) throw controller.signal.reason || cancellation();
+      controller.abort(error); // Stop sibling JSON transfers and any retry delay.
       if (error?.code?.startsWith('classifier/')) throw error;
-      if (source === 'bundled') throw missingModelFiles(error);
       throw failure('model-load-failed', 'Não foi possível carregar este modelo de imagem. Confira se ele foi exportado como TensorFlow.js e tente novamente.', error);
     } finally {
       clearTimeout(timer);
@@ -270,6 +389,9 @@ function createEntry(baseURL, callback) {
 
 async function getEntry(baseURL, callback, signal) {
   if (signal?.aborted) throw cancellation();
+  if (baseURL === bundledModelURL && MODEL_CONFIG.bundledModelAvailable !== true) {
+    throw failure('model-not-configured', 'O modelo EcoPlant ainda não foi adicionado ao aplicativo. Importe model.json, metadata.json e o arquivo de pesos .bin no Perfil, ou informe o link do seu modelo publicado no Teachable Machine.');
+  }
   let entry = models.get(baseURL);
   if (!entry && baseURL === IMPORTED_MODEL_URL) throw missingModelFiles();
   if (!entry) entry = createEntry(baseURL, callback);
@@ -277,6 +399,7 @@ async function getEntry(baseURL, callback, signal) {
   else if (typeof callback === 'function') entry.listeners.add(callback);
   const onAbort = () => { if (!entry.loaded) entry.controller.abort(cancellation()); };
   signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) onAbort();
   try {
     const loaded = await entry.promise;
     if (signal?.aborted || loaded.retired) throw cancellation();
