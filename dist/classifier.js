@@ -11,6 +11,7 @@ const LOAD_TIMEOUT = 45000;
 const MAX_RESOURCE_ATTEMPTS = 3;
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_WEIGHT_BYTES = 128 * 1024 * 1024;
+const MIN_CLASS_CONFIDENCE = 0.75;
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 export const BUNDLED_MODEL_URL = './my_model/';
 export const IMPORTED_MODEL_URL = 'local:ecoplant-model';
@@ -339,6 +340,10 @@ async function loadDownloadedModel(baseURL, topology, metadata, signal, source, 
   if (topology.trainingConfig) artifacts.trainingConfig = topology.trainingConfig;
   if (topology.userDefinedMetadata) artifacts.userDefinedMetadata = topology.userDefinedMetadata;
   // Use only the JSON and shard bytes already validated above: no second fetch.
+  return constructModel(artifacts, metadata, signal);
+}
+
+async function constructModel(artifacts, metadata, signal) {
   const layers = await globalThis.tf.loadLayersModel(globalThis.tf.io.fromMemory(artifacts), { strict: true });
   try {
     if (signal.aborted) throw signal.reason || cancellation();
@@ -434,15 +439,45 @@ function selectModelFiles(files) {
   const metadataFiles = list.filter(file => file.name === 'metadata.json');
   const weightFiles = list.filter(file => /\.bin$/i.test(file.name));
   if (modelFiles.length > 1 || metadataFiles.length > 1) throw failure('invalid-model-files', 'Selecione apenas um model.json e um metadata.json da mesma exportação.');
-  if (weightFiles.length > 1) throw failure('multiple-weight-files', 'A importação aceita um único arquivo de pesos .bin. Para modelos com vários arquivos de pesos, publique no Teachable Machine e informe o link no Perfil.');
-  if (modelFiles.length !== 1 || metadataFiles.length !== 1 || weightFiles.length !== 1) throw missingModelFiles();
-  return { modelFile: modelFiles[0], metadataFile: metadataFiles[0], weightsFile: weightFiles[0] };
+  if (modelFiles.length !== 1 || metadataFiles.length !== 1 || !weightFiles.length) throw missingModelFiles();
+  if (weightFiles.length > 32 || new Set(weightFiles.map(file => file.name)).size !== weightFiles.length) {
+    throw failure('invalid-model-files', 'Selecione no máximo 32 arquivos de pesos, sem repetir nomes, da mesma exportação.');
+  }
+  if (weightFiles.some(file => file.size <= 0 || typeof file.arrayBuffer !== 'function')
+      || weightFiles.reduce((sum, file) => sum + file.size, 0) > MAX_WEIGHT_BYTES) {
+    throw failure('invalid-model-files', 'Os pesos precisam estar completos e somar no máximo 128 MB. Exporte novamente o modelo.');
+  }
+  return { modelFile: modelFiles[0], metadataFile: metadataFiles[0], weightFiles };
+}
+
+async function loadLocalShards(topology, metadata, files, signal) {
+  const byName = new Map(files.map(file => [file.name, file]));
+  const buffers = [];
+  const weightSpecs = [];
+  let total = 0;
+  for (const group of topology.weightsManifest) {
+    weightSpecs.push(...group.weights);
+    for (const path of group.paths) {
+      const buffer = await abortable(byName.get(path).arrayBuffer(), signal);
+      total += buffer.byteLength;
+      if (total > MAX_WEIGHT_BYTES) throw failure('invalid-model-files', 'Os pesos excedem o limite de 128 MB.');
+      buffers.push(buffer);
+    }
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const buffer of buffers) { bytes.set(new Uint8Array(buffer), offset); offset += buffer.byteLength; }
+  return constructModel({ modelTopology: topology.modelTopology, weightSpecs, weightData: bytes.buffer,
+    format: topology.format, generatedBy: topology.generatedBy, convertedBy: topology.convertedBy,
+    ...(topology.trainingConfig ? {trainingConfig:topology.trainingConfig} : {}),
+    ...(topology.userDefinedMetadata ? {userDefinedMetadata:topology.userDefinedMetadata} : {})
+  }, metadata, signal);
 }
 
 /** Import only into this tab's memory. No upload or browser persistence is performed. */
 export async function loadPlantModelFromFiles(files, onProgress, options = {}) {
   if (options.signal?.aborted) throw cancellation();
-  const { modelFile, metadataFile, weightsFile } = selectModelFiles(files);
+  const { modelFile, metadataFile, weightFiles } = selectModelFiles(files);
   pendingImport?.controller.abort(cancellation());
   const controller = new AbortController();
   const entry = { controller, listeners: new Set(), promise: null, loaded: null };
@@ -463,13 +498,18 @@ export async function loadPlantModelFromFiles(files, onProgress, options = {}) {
         throw error;
       }
       const paths = topology.weightsManifest.flatMap(group => group.paths);
-      if (paths.length !== 1) throw failure('multiple-weight-files', 'Este modelo usa vários arquivos de pesos. Publique-o no Teachable Machine e informe o link no Perfil para carregar todos os arquivos.');
-      if (paths[0] !== weightsFile.name) throw failure('weights-name-mismatch', `O model.json espera o arquivo ${paths[0]}. Selecione esse arquivo de pesos da mesma exportação, sem renomeá-lo.`);
+      const suppliedNames = new Set(weightFiles.map(file => file.name));
+      const missing = paths.filter(path => !suppliedNames.has(path));
+      if (missing.length) throw failure('weights-name-mismatch', `Faltam arquivos esperados pelo model.json: ${missing.join(', ')}. Selecione todos os pesos da mesma exportação, sem renomeá-los.`);
+      if (weightFiles.some(file => !paths.includes(file.name))) throw failure('unexpected-weight-files', 'Há arquivos de pesos que não pertencem a este model.json. Selecione somente os arquivos da mesma exportação.');
       report(onProgress, 'Preparando o processamento da imagem…', 'libraries');
       await abortable(ensureLibraries(), controller.signal);
       if (typeof globalThis.tmImage.loadFromFiles !== 'function') throw failure('library-unavailable', 'A biblioteca de importação não iniciou. Recarregue a página e tente novamente.');
       report(onProgress, 'Carregando os pesos do seu modelo…', 'weights');
-      entry.loaded = await verifyLoadedModel(globalThis.tmImage.loadFromFiles(modelFile, weightsFile, metadataFile), entry, labels, metadata, IMPORTED_MODEL_URL, 'files');
+      const modelPromise = paths.length === 1
+        ? globalThis.tmImage.loadFromFiles(modelFile, weightFiles[0], metadataFile)
+        : loadLocalShards(topology, metadata, weightFiles, controller.signal);
+      entry.loaded = await verifyLoadedModel(modelPromise, entry, labels, metadata, IMPORTED_MODEL_URL, 'files');
       if (controller.signal.aborted || pendingImport !== entry) {
         retireModel(entry.loaded);
         throw controller.signal.reason || cancellation();
@@ -568,6 +608,8 @@ export async function classifyPlant(imageOrCanvas, baseUrl, onProgress, options 
     modelLabels: [...labels], predictions,
     topClass: predictions[0].className,
     confidence: predictions[0].probability,
+    // Keep the existing Firebase enum: uncertainty is captured in the title.
+    ...(predictions[0].probability < MIN_CLASS_CONFIDENCE ? {severity:'observe',title:'Análise inconclusiva'} : {}),
     analyzedAt: new Date().toISOString()
   };
 }

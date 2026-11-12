@@ -47,6 +47,9 @@ const state = {user:null,guest:false,profile:{},plants:[],analyses:[],source:'cl
 let unsubscribeData=()=>{}, cameraStream=null, cameraFacing='environment', toastTimer, authResolved=false, modelLoadController=null, scanLoadController=null;
 let lastRenderedRoute='';
 const pendingForms=new Set();
+const ACCESS_MODE_KEY='ecoplant-access-mode';
+function accessMode(){try{return localStorage.getItem(ACCESS_MODE_KEY)||'';}catch{return '';}}
+function rememberAccessMode(mode){try{localStorage.setItem(ACCESS_MODE_KEY,mode);}catch{/* The current session remains usable if preferences cannot be stored. */}}
 const blankData = () => ({profile:{},plants:[],analyses:[]});
 const date = value => { const d=new Date(value||Date.now()); return isNaN(d)?'Data indisponível':new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',year:'numeric',timeZone:'America/Sao_Paulo'}).format(d); };
 const name = () => state.profile.displayName || state.profile.name || state.user?.displayName || 'Seu jardim';
@@ -69,7 +72,7 @@ function modelIsReady(){try{return !!state.model&&state.model.modelURL===validat
 function syncModelSource(){
  const form=$('#model-form');if(!form)return;
  const source=form.elements.modelSource.value;
- const healthyField=form.elements.healthyClass;healthyField.disabled=source==='files';healthyField.closest('.field').classList.toggle('hidden',source==='files');form.querySelector('[data-healthy-help]').classList.toggle('hidden',source==='files');
+ const healthyField=form.elements.healthyClass;healthyField.disabled=false;healthyField.closest('.field').classList.remove('hidden');form.querySelector('[data-healthy-help]').classList.remove('hidden');
  for(const panel of form.querySelectorAll('[data-model-source]')){
   const active=panel.dataset.modelSource===source;panel.hidden=!active;
   for(const input of panel.querySelectorAll('input')){input.disabled=!active;input.required=active;}
@@ -88,8 +91,8 @@ function modelSettingsView(){
   </select></label>
   <div data-model-source="bundled" ${source==='bundled'?'':'hidden'}><div class="notice" style="margin-bottom:18px"><span>Carrega os arquivos de treinamento publicados junto com o EcoPlant.</span></div></div>
   <div data-model-source="hosted" ${source==='hosted'?'':'hidden'}>${field('Link do modelo publicado','modelURL','https://teachablemachine.withgoogle.com/models/SEU_ID/',{type:'url',maxlength:300,value:p.modelURL||''})}</div>
-  <div data-model-source="files" ${source==='files'?'':'hidden'}><label class="field" for="model-files">Arquivos exportados do Teachable Machine<input id="model-files" name="modelFiles" type="file" accept=".json,.bin" multiple></label><p class="privacy-note" style="margin-bottom:18px">Descompacte o ZIP e selecione juntos <strong>model.json</strong>, <strong>metadata.json</strong> e o arquivo <strong>.bin</strong> dos pesos. Eles são usados somente nesta aba e precisam ser selecionados novamente após recarregar. Não são enviados ao banco de dados.</p></div>
-  ${field('Nome exato da classe saudável (opcional)','healthyClass','Ex.: Saudável',{maxlength:200,value:p.healthyClass||''})}
+  <div data-model-source="files" ${source==='files'?'':'hidden'}><label class="field" for="model-files">Arquivos exportados do Teachable Machine<input id="model-files" name="modelFiles" type="file" accept=".json,.bin" multiple></label><p class="privacy-note" style="margin-bottom:18px">Descompacte o ZIP e selecione juntos <strong>model.json</strong>, <strong>metadata.json</strong> e todos os arquivos <strong>.bin</strong> dos pesos. Eles são usados somente nesta aba e precisam ser selecionados novamente após recarregar. Não são enviados ao banco de dados.</p></div>
+  ${field('Nome exato da classe saudável (opcional)','healthyClass','Ex.: Saudável',{maxlength:200,value:source==='files'?(state.model?.source==='files'?state.model.healthyClass||'':''):p.healthyClass||''})}
   <p class="privacy-note" data-healthy-help>Informe uma classe que exista no treinamento. A confiança indica a escolha do modelo, não a gravidade de uma doença.</p>
   <div class="form-error" role="alert"></div><button class="btn block" type="submit">${icon('spark')}Carregar e usar modelo</button>
   ${state.model?.source==='files'||p.modelURL?`<button class="link" type="button" data-action="remove-model" style="margin-top:12px">${MODEL_CONFIG.bundledModelAvailable?'Voltar ao modelo do EcoPlant':'Desconectar modelo'}</button>`:''}
@@ -101,7 +104,7 @@ function openDialog(title,html){const d=$('#dialog');stopCamera();d.innerHTML=`<
 function closeDialog(){stopCamera();$('#dialog').close();}
 function authScreen(view){
  const register=view==='register',recover=view==='recover';
- return `<main class="auth"><aside class="auth-story">${brand()}<h2 class="serif">Um olhar atento.<br>Uma planta <i>mais saudável.</i></h2><p>Fotografe, descubra os sinais e acompanhe cada nova folha do seu jardim.</p><img src="./assets/garden.svg" alt="Ilustração botânica de uma planta em vaso"><footer><span>TECNOLOGIA A SERVIÇO DO VERDE</span><span>01 / SEU JARDIM COMEÇA AQUI</span></footer></aside><section class="auth-panel"><div class="auth-tools">${renderThemeSwitch()}<button class="auth-install btn secondary small" data-action="install" aria-label="Instalar Ecoplant">${icon('download')} Instalar Ecoplant</button></div><div class="auth-inner"><div class="eyebrow">${recover?'VAMOS RECUPERAR SEU ACESSO':register?'CULTIVE NOVOS HÁBITOS':'BEM-VINDO AO SEU JARDIM'}</div><h1 class="serif">${recover?'Esqueceu a senha?':register?'Crie sua conta.':'Bom te ver de novo.'}</h1><p class="intro">${recover?'Informe seu e-mail para receber o link de recuperação.':register?'Um espaço para suas plantas e para tudo o que você aprende com elas.':'Entre para acompanhar suas plantas, do primeiro registro à próxima folha.'}</p><form id="auth-form" data-view="${esc(view)}">${register?field('Nome completo','name','Seu nome',{required:true,maxlength:120,autocomplete:'name'}):''}${field('E-mail','email','voce@exemplo.com',{type:'email',required:true,autocomplete:'email'})}${recover?'':passwordField('Senha','password',register?'Crie uma senha com 8 ou mais caracteres':'Sua senha',register?'new-password':'current-password',register?8:1)}${register?passwordField('Confirmar senha','confirm','Repita a senha','new-password',8):''}${!recover?`<div class="auth-options"><label class="checkbox"><input type="checkbox" name="remember" checked>Manter conectado</label>${!register?'<a class="link" href="#recover">Esqueci minha senha</a>':''}</div>`:''}<div class="form-error" role="alert"></div><button class="btn block" type="submit">${icon(recover?'mail':register?'user':'arrow')}${recover?'Enviar link':register?'Criar conta':'Entrar'}</button></form>${!recover?`<div class="divider">OU CONTINUE COM</div><button class="btn secondary block" data-action="google"><span class="google-g" aria-hidden="true">G</span>Continuar com Google</button>`:''}<p class="auth-switch">${recover?'<a href="#login">Voltar ao login</a>':register?'Já tem uma conta? <a href="#login">Entrar</a>':'Novo por aqui? <a href="#register">Criar uma conta</a>'}</p><div class="guest-link"><button class="link" data-action="guest">Usar neste aparelho</button><small>Sem conta, os dados ficam apenas neste dispositivo.</small></div>${register?'<p class="privacy-note" style="margin-top:20px">Ao criar a conta, você permite guardar seu perfil e seus registros de plantas. Suas fotos ficam acessíveis à sua própria conta.</p>':''}</div></section></main>`;
+ return `<main class="auth"><aside class="auth-story">${brand()}<h2 class="serif">Um olhar atento.<br>Uma planta <i>mais saudável.</i></h2><p>Fotografe, descubra os sinais e acompanhe cada nova folha do seu jardim.</p><img src="./assets/garden.svg" alt="Ilustração botânica de uma planta em vaso"><footer><span>TECNOLOGIA A SERVIÇO DO VERDE</span><span>01 / SEU JARDIM COMEÇA AQUI</span></footer></aside><section class="auth-panel"><div class="auth-tools">${renderThemeSwitch()}<button class="auth-install btn secondary small" data-action="install" aria-label="Instalar Ecoplant">${icon('download')} Instalar Ecoplant</button></div><div class="auth-inner"><div class="eyebrow">${recover?'VAMOS RECUPERAR SEU ACESSO':register?'CULTIVE NOVOS HÁBITOS':'BEM-VINDO AO SEU JARDIM'}</div><h1 class="serif">${recover?'Esqueceu a senha?':register?'Crie sua conta.':'Bom te ver de novo.'}</h1><p class="intro">${recover?'Informe seu e-mail para receber o link de recuperação.':register?'Um espaço para suas plantas e para tudo o que você aprende com elas.':'Entre para acompanhar suas plantas, do primeiro registro à próxima folha.'}</p>${!register&&!recover?`<section class="auth-quick-start" aria-label="Começar sem conta"><button class="btn block" type="button" data-action="guest" data-destination="#scan">${icon('camera')}Analisar uma planta sem conta</button><p>Envie uma foto e receba o relatório. Seus registros ficam neste aparelho.</p></section>`:''}<form id="auth-form" data-view="${esc(view)}">${register?field('Nome completo','name','Seu nome',{required:true,maxlength:120,autocomplete:'name'}):''}${field('E-mail','email','voce@exemplo.com',{type:'email',required:true,autocomplete:'email'})}${recover?'':passwordField('Senha','password',register?'Crie uma senha com 8 ou mais caracteres':'Sua senha',register?'new-password':'current-password',register?8:1)}${register?passwordField('Confirmar senha','confirm','Repita a senha','new-password',8):''}${!recover?`<div class="auth-options"><label class="checkbox"><input type="checkbox" name="remember" checked>Manter conectado</label>${!register?'<a class="link" href="#recover">Esqueci minha senha</a>':''}</div>`:''}<div class="form-error" role="alert"></div><button class="btn block" type="submit">${icon(recover?'mail':register?'user':'arrow')}${recover?'Enviar link':register?'Criar conta':'Entrar'}</button></form>${!recover?`<div class="divider">OU CONTINUE COM</div><button class="btn secondary block" data-action="google"><span class="google-g" aria-hidden="true">G</span>Continuar com Google</button>`:''}<p class="auth-switch">${recover?'<a href="#login">Voltar ao login</a>':register?'Já tem uma conta? <a href="#login">Entrar</a>':'Novo por aqui? <a href="#register">Criar uma conta</a>'}</p><div class="guest-link"><button class="link" data-action="guest">Continuar neste aparelho</button><small>Sem conta, os dados ficam apenas neste dispositivo.</small></div>${register?'<p class="privacy-note" style="margin-top:20px">Ao criar a conta, você permite guardar seu perfil e seus registros de plantas. Suas fotos ficam acessíveis à sua própria conta.</p>':''}</div></section></main>`;
 }
 function field(label,id,placeholder='',opts={}){const value=opts.value??'';const attrs=Object.entries(opts).filter(([k])=>k!=='value'&&k!=='type').map(([k,v])=>v===true?esc(k):`${esc(k)}="${esc(v)}"`).join(' ');return `<label class="field" for="${esc(id)}">${esc(label)}<input id="${esc(id)}" name="${esc(id)}" type="${esc(opts.type||'text')}" placeholder="${esc(placeholder)}" value="${esc(value)}" ${attrs}></label>`;}
 function passwordField(label,id,placeholder,autocomplete,min){return `<label class="field" for="${id}">${label}<span class="password-field"><input id="${id}" name="${id}" type="password" placeholder="${esc(placeholder)}" autocomplete="${autocomplete}" required minlength="${min}" maxlength="128"><button type="button" data-action="toggle-password" data-target="${id}" aria-label="Mostrar senha">${icon('eye')}</button></span></label>`;}
@@ -201,7 +204,16 @@ async function generateScanReport(data,onProgress,signal){
   const image=new Image();await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(scanFailure('Não foi possível abrir esta foto. Selecione outra imagem.','#scan-image-button'));image.src=photo;});
   if(signal.aborted)throw Object.assign(new Error('Análise cancelada.'),{name:'AbortError'});
   if(method==='plant-ai')result=await classifyPlantAI(image,onProgress,{signal});
-  else{const url=activeModelURL();if(!url)throw scanFailure('Conecte seu treinamento no perfil ou escolha a IA pronta para usar.','#analysis-method');result=await classifyPlant(image,url,onProgress,{signal});}
+  else{
+   const url=activeModelURL(),healthyClass=String(state.model?.source==='files'?state.model.healthyClass||'':state.profile.healthyClass||'');
+   if(!url)throw scanFailure('Conecte seu treinamento no perfil ou escolha a IA pronta para usar.','#analysis-method');
+   result=await classifyPlant(image,url,onProgress,{signal});
+   if(result.severity!=='inconclusive'&&result.title!=='Análise inconclusiva'){
+    const selected=healthyClass&&Array.isArray(result.modelLabels)&&result.modelLabels.includes(healthyClass);
+    const healthy=Boolean(selected&&result.topClass===healthyClass);
+    result={...result,title:healthy?'Classe saudável no modelo':'Classe identificada pelo modelo',summary:healthy?`O modelo escolheu “${result.topClass}”, a classe saudável selecionada para esta análise. A pontuação descreve a escolha do modelo e não confirma a saúde de toda a planta.`:`O modelo escolheu “${result.topClass}” entre as classes disponíveis.${selected?` A classe saudável selecionada nesta análise foi “${healthyClass}”.`:''} A classificação depende das imagens usadas no treinamento e não confirma um diagnóstico.`};
+   }
+  }
  }else throw scanFailure('Escolha IA de imagem ou Relatório de observação.','#analysis-method');
  const now=Date.now();return {id:uuid(),plantId,photo,date:now,symptoms,result,notes,createdAt:now,updatedAt:now};
 }
@@ -228,12 +240,26 @@ function render(){
  for(const id of pendingForms){const submit=document.querySelector(`#${id} [type="submit"]`);if(submit){submit.disabled=true;submit.innerHTML=`${loaderHTML({small:true})} Só um instante…`;}}
  lastRenderedRoute=currentRoute();
 }
-async function loadGuest(){unsubscribeData();state.guest=true;let uid=localStorage.getItem('ecoplant-guest-id');if(!uid){uid='local-'+uuid();localStorage.setItem('ecoplant-guest-id',uid);}state.user={uid,displayName:'Meu jardim',email:''};const data=await getCachedData(uid)||blankData();Object.assign(state,data,{source:'local',dataError:''});state.profile.displayName ||= 'Meu jardim';const resume=routePath()==='report/draft';restoreDraft(uid);go(resume&&state.draft?'#report/draft':'#home');render();finishSplash();}
+async function loadGuest({destination=location.hash}={}){
+ let uid=localStorage.getItem('ecoplant-guest-id');
+ if(!uid){uid='local-'+uuid();localStorage.setItem('ecoplant-guest-id',uid);}
+ unsubscribeData();state.guest=true;rememberAccessMode('local');
+ if(state.user?.uid!==uid){modelLoadController?.abort();scanLoadController?.abort();clearImportedPlantModel();lastRenderedRoute='';Object.assign(state,blankData(),{model:null,scanPhoto:'',scanSymptoms:[],scanNotes:'',scanPlantId:'',scanMethod:'',draft:null,plantPhoto:null,profilePhoto:null});}
+ state.user={uid,displayName:'Meu jardim',email:''};
+ const data=await getCachedData(uid)||blankData();
+ if(!state.guest||state.user?.uid!==uid)return;
+ Object.assign(state,data,{source:'local',dataError:''});state.profile.displayName ||= 'Meu jardim';restoreDraft(uid);
+ const requested=String(destination||'');
+ const destinationPath=requested.slice(1).split('?')[0];
+ const allowed=['home','plants','history','profile','scan','guide'].includes(destinationPath)||/^plant\/[A-Za-z0-9_-]+(?:\/edit)?$/.test(destinationPath)||/^report\/[A-Za-z0-9_-]+$/.test(destinationPath);
+ const target=destinationPath==='report/draft'&&!state.draft?'#scan':allowed?requested:'#home';
+ go(target);render();finishSplash();
+}
 async function persistLocal(data){const uid=state.user?.uid;if(!uid)throw Object.assign(new Error(),{userMessage:'Abra seu jardim para salvar o relatório.'});const stored=await putCachedData(uid,data);if(!stored)throw Object.assign(new Error(),{userMessage:'Este navegador bloqueou o armazenamento local. Permita os dados deste site para salvar seus registros.'});if(state.user?.uid!==uid)return;Object.assign(state,data);render();}
 async function saveProfile(patch){if(state.guest){await persistLocal({...blankData(),profile:{...state.profile,...patch},plants:state.plants,analyses:state.analyses});}else{await cloud.saveProfile(state.user.uid,patch);state.profile={...state.profile,...patch};render();}}
 async function savePlant(record){if(state.guest){await persistLocal({profile:state.profile,plants:[record,...state.plants.filter(p=>p.id!==record.id)],analyses:state.analyses});return record;}const saved=await cloud.savePlant(state.user.uid,record);state.plants=[saved,...state.plants.filter(p=>p.id!==saved.id)];return saved;}
 async function saveAnalysis(record){const uid=state.user?.uid;if(!uid)throw Object.assign(new Error(),{userMessage:'Abra seu jardim para salvar o relatório.'});if(state.guest){await persistLocal({profile:state.profile,plants:state.plants,analyses:[record,...state.analyses.filter(a=>a.id!==record.id)]});return record;}const saved=await cloud.saveAnalysis(uid,record);if(state.user?.uid===uid&&!state.guest)state.analyses=[saved,...state.analyses.filter(a=>a.id!==saved.id)];return saved;}
-async function activateUser(user){if(state.guest)return;const userChanged=state.user?.uid!==user?.uid;unsubscribeData();if(userChanged){modelLoadController?.abort();scanLoadController?.abort();clearImportedPlantModel();lastRenderedRoute='';state.scanPhoto='';state.scanSymptoms=[];state.scanNotes='';state.draft=null;state.model=null;state.scanPlantId='';state.scanMethod='';state.plantPhoto=null;state.profilePhoto=null;}state.user=user;state.profile={};state.plants=[];state.analyses=[];state.dataError='';authResolved=true;if(!user){render();finishSplash();return;}state.profile.displayName=user.displayName||'';state.profile.email=user.email||'';if(userChanged)restoreDraft(user.uid);unsubscribeData=cloud.subscribeData(user.uid,data=>{if(state.user?.uid!==user.uid||state.guest)return;Object.assign(state,{...data,profile:{displayName:user.displayName||'',email:user.email||'',...data.profile},dataError:''});render();},error=>{state.dataError=errorMessage(error);render();});if(['login','register','recover',''].includes(routePath()))go('#home');render();finishSplash();try{if(cloud.ensureProfile)await cloud.ensureProfile(user);}catch(error){state.dataError=errorMessage(error);render();}}
+async function activateUser(user){if(state.guest)return;if(user)rememberAccessMode('cloud');const userChanged=state.user?.uid!==user?.uid;unsubscribeData();if(userChanged){modelLoadController?.abort();scanLoadController?.abort();clearImportedPlantModel();lastRenderedRoute='';state.scanPhoto='';state.scanSymptoms=[];state.scanNotes='';state.draft=null;state.model=null;state.scanPlantId='';state.scanMethod='';state.plantPhoto=null;state.profilePhoto=null;}state.user=user;state.profile={};state.plants=[];state.analyses=[];state.dataError='';authResolved=true;if(!user){render();finishSplash();return;}state.profile.displayName=user.displayName||'';state.profile.email=user.email||'';if(userChanged)restoreDraft(user.uid);unsubscribeData=cloud.subscribeData(user.uid,data=>{if(state.user?.uid!==user.uid||state.guest)return;Object.assign(state,{...data,profile:{displayName:user.displayName||'',email:user.email||'',...data.profile},dataError:''});render();},error=>{state.dataError=errorMessage(error);render();});if(['login','register','recover',''].includes(routePath()))go('#home');render();finishSplash();try{if(cloud.ensureProfile)await cloud.ensureProfile(user);}catch(error){state.dataError=errorMessage(error);render();}}
 async function resizeImage(file){if(!file||file.size>15*1024*1024)throw new Error('Escolha uma imagem de até 15 MB.');const url=URL.createObjectURL(file);try{const img=new Image();await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('Este formato não abriu no navegador. Use uma foto JPG, PNG ou WebP.'));img.src=url;});return canvasPhoto(img);}finally{URL.revokeObjectURL(url);}}
 function canvasPhoto(source){const width=source.videoWidth||source.naturalWidth||source.width,height=source.videoHeight||source.naturalHeight||source.height;if(!width||!height)throw new Error('A câmera ainda está preparando a imagem. Tente novamente.');const scale=Math.min(1,850/Math.max(width,height)),canvas=document.createElement('canvas');canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);canvas.getContext('2d').drawImage(source,0,0,canvas.width,canvas.height);let q=.82,data=canvas.toDataURL('image/jpeg',q);while(data.length>230000&&q>.25){q-=.08;data=canvas.toDataURL('image/jpeg',q);}if(data.length>240000)throw new Error('A imagem ficou muito grande. Aproxime-se de uma única folha e tente de novo.');return data;}
 function stopCamera(){cameraStream?.getTracks().forEach(t=>t.stop());cameraStream=null;}
@@ -248,9 +274,9 @@ document.addEventListener('click',async e=>{
  try{
   if(action==='toggle-password'){const input=document.getElementById(b.dataset.target);input.type=input.type==='password'?'text':'password';b.setAttribute('aria-label',input.type==='password'?'Mostrar senha':'Ocultar senha');return;}
   if(action==='close-dialog'){closeDialog();return;}
-  if(action==='guest'){await loadGuest();return;}
+  if(action==='guest'){await loadGuest({destination:b.dataset.destination||location.hash});return;}
   if(action==='install'){await install();return;}
-  if(action==='google'){b.disabled=true;const remember=$('[name="remember"]')?.checked!==false;try{await cloud.loginGoogle(remember);}finally{if(b.isConnected)b.disabled=false;}return;}
+  if(action==='google'){rememberAccessMode('cloud');b.disabled=true;const remember=$('[name="remember"]')?.checked!==false;try{await cloud.loginGoogle(remember);}finally{if(b.isConnected)b.disabled=false;}return;}
   if(action==='choose-photo'){const id=b.dataset.target;if(['plant-photo-input','scan-photo-input'].includes(id))document.getElementById(id)?.click();return;}
   if(action==='retry-analysis'){$('#scan-form')?.requestSubmit();return;}
   if(action==='observation-report'){const form=$('#scan-form');if(form){form.elements.method.value='guided';state.scanMethod='guided';syncScanForm();form.requestSubmit();}return;}
@@ -261,7 +287,7 @@ document.addEventListener('click',async e=>{
   if(action==='capture-photo'){state.scanPhoto=canvasPhoto($('#camera-video'));closeDialog();render();return;}
   if(action==='camera-file'){closeDialog();$('#camera-fallback')?.click();return;}
   if(action==='remove-plant-photo'){state.plantPhoto='';render();return;}
-  if(action==='logout'){unsubscribeData();stopCamera();modelLoadController?.abort();scanLoadController?.abort();forgetDraft();clearImportedPlantModel();clearPlantAI();const wasGuest=state.guest;state.guest=false;state.user=null;lastRenderedRoute='';Object.assign(state,blankData(),{dataError:'',model:null,scanPhoto:'',scanSymptoms:[],scanNotes:'',scanPlantId:'',scanMethod:'',draft:null});if(!wasGuest)await cloud.logout();go('#login');render();return;}
+  if(action==='logout'){rememberAccessMode('login');unsubscribeData();stopCamera();modelLoadController?.abort();scanLoadController?.abort();forgetDraft();clearImportedPlantModel();clearPlantAI();const wasGuest=state.guest;state.guest=false;state.user=null;lastRenderedRoute='';Object.assign(state,blankData(),{dataError:'',model:null,scanPhoto:'',scanSymptoms:[],scanNotes:'',scanPlantId:'',scanMethod:'',draft:null});if(!wasGuest)await cloud.logout();go('#login');render();return;}
   if(action==='retry-sync'){state.dataError='';if(!state.guest)await activateUser(state.user);return;}
   if(action==='reset-password'){if(state.guest){toast('Entre em uma conta para recuperar a senha.');return;}openDialog('Alterar sua senha',`<p class="dialog-copy">Vamos enviar um link de recuperação para <strong>${esc(state.user.email||'seu e-mail')}</strong>. Se você entra com Google, sua senha é gerenciada pela conta Google.</p><button class="btn block" data-action="confirm-reset">Enviar link de recuperação</button>`);return;}
   if(action==='confirm-reset'){b.disabled=true;await cloud.recover(state.user.email);closeDialog();toast('Se o e-mail estiver cadastrado para senha, você receberá o link.');return;}
@@ -280,33 +306,40 @@ document.addEventListener('click',async e=>{
  finally{if(clickLoadingToken!==null)hideLoading(clickLoadingToken);}
 });
 document.addEventListener('submit',async e=>{
- const operationUID=state.user?.uid;const form=e.target;if(!['auth-form','plant-form','profile-form','model-form','scan-form'].includes(form.id))return;e.preventDefault();if(pendingForms.has(form.id))return;pendingForms.add(form.id);const loadingToken=showLoading(form.id==='scan-form'?'Preparando o relatório da planta…':form.id==='model-form'?'Conectando seu modelo…':form.id==='auth-form'?'Conectando sua conta…':'Salvando seu jardim…');const data=new FormData(form),button=form.querySelector('[type="submit"]'),original=button?.innerHTML,err=form.querySelector('.form-error');if(err)err.textContent='';form.querySelector('#model-recovery')?.classList.add('hidden');if(button){button.disabled=true;button.innerHTML=`${loaderHTML({small:true})} Só um instante…`;}
+ const operationUID=state.user?.uid;const form=e.target;if(!['auth-form','plant-form','profile-form','model-form','scan-form'].includes(form.id))return;e.preventDefault();if(pendingForms.has(form.id))return;pendingForms.add(form.id);
+ const operationController=['scan-form','model-form'].includes(form.id)?new AbortController():null;
+ if(form.id==='scan-form'){scanLoadController?.abort();scanLoadController=operationController;}
+ if(form.id==='model-form'){modelLoadController?.abort();modelLoadController=operationController;}
+ let cancelledByUser=false;
+ const loadingToken=showLoading(form.id==='scan-form'?'Preparando o relatório da planta…':form.id==='model-form'?'Conectando seu modelo…':form.id==='auth-form'?'Conectando sua conta…':'Salvando seu jardim…',operationController?{onCancel:()=>{cancelledByUser=true;operationController.abort();}}:{});
+ const data=new FormData(form),button=form.querySelector('[type="submit"]'),original=button?.innerHTML,err=form.querySelector('.form-error');if(err)err.textContent='';form.querySelector('#model-recovery')?.classList.add('hidden');if(button){button.disabled=true;button.innerHTML=`${loaderHTML({small:true})} Só um instante…`;}
  try{
-  if(form.id==='auth-form'){const view=form.dataset.view,email=data.get('email'),password=data.get('password'),remember=data.get('remember')==='on';if(view==='register'){if(password!==data.get('confirm'))throw Object.assign(new Error(),{userMessage:'As senhas precisam ser iguais.'});await cloud.register(data.get('name'),email,password,remember);}else if(view==='recover'){await cloud.recover(email);openDialog('Confira sua caixa de entrada',`<p class="dialog-copy">Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha. Confira também o spam.</p><button class="btn block" data-action="close-dialog">Entendi</button>`);}else await cloud.login(email,password,remember);}
+  if(form.id==='auth-form'){if(form.dataset.view!=='recover')rememberAccessMode('cloud');const view=form.dataset.view,email=data.get('email'),password=data.get('password'),remember=data.get('remember')==='on';if(view==='register'){if(password!==data.get('confirm'))throw Object.assign(new Error(),{userMessage:'As senhas precisam ser iguais.'});await cloud.register(data.get('name'),email,password,remember);}else if(view==='recover'){await cloud.recover(email);openDialog('Confira sua caixa de entrada',`<p class="dialog-copy">Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha. Confira também o spam.</p><button class="btn block" data-action="close-dialog">Entendi</button>`);}else await cloud.login(email,password,remember);}
   if(form.id==='plant-form'){const old=findPlant(form.dataset.id),record={id:old?.id||uuid(),name:String(data.get('plant-name')).trim(),species:String(data.get('species')||'').trim(),location:String(data.get('location')||'').trim(),notes:String(data.get('notes')||'').trim(),photo:state.plantPhoto??old?.photo??'',createdAt:old?.createdAt||Date.now(),updatedAt:Date.now()};if(!record.name)throw Object.assign(new Error(),{userMessage:'Informe o nome da planta.'});await savePlant(record);state.plantPhoto=null;go('#plant/'+record.id);toast(state.guest?'Planta salva neste aparelho.':'Planta salva no seu jardim.');}
   if(form.id==='profile-form'){const displayName=String(data.get('displayName')||'').trim();if(!state.guest)await cloud.updateUserProfile({displayName});await saveProfile({displayName,reminders:data.get('reminders')==='on',...(state.profilePhoto?{photo:state.profilePhoto}:{})});state.profilePhoto=null;toast('Seu perfil foi atualizado.');}
   if(form.id==='model-form'){
    const source=String(data.get('modelSource')||'bundled'),healthyClass=String(data.get('healthyClass')||'').trim();
-   modelLoadController=new AbortController();
+   const controller=operationController;
    const progress=msg=>{updateLoading(msg,loadingToken);if(button?.isConnected)button.textContent=msg;};
    const info=source==='files'
-    ?await loadPlantModelFromFiles(form.elements.modelFiles.files,progress,{signal:modelLoadController.signal,healthyClass})
-    :await loadPlantModel(source==='bundled'?BUNDLED_MODEL_URL:validateModelURL(data.get('modelURL')),progress,{signal:modelLoadController.signal});
+    ?await loadPlantModelFromFiles(form.elements.modelFiles.files,progress,{signal:controller.signal,healthyClass})
+    :await loadPlantModel(source==='bundled'?BUNDLED_MODEL_URL:validateModelURL(data.get('modelURL')),progress,{signal:controller.signal});
    if(healthyClass&&!info.labels.includes(healthyClass))throw Object.assign(new Error(),{userMessage:'A classe saudável precisa ter o mesmo nome de uma das classes do modelo: '+info.labels.join(', ')});
-   if(state.user?.uid!==operationUID)return;
-   if(source==='files'){state.model=info;}
-   else{await saveProfile({modelURL:source==='hosted'?info.modelURL:'',healthyClass});if(state.user?.uid!==operationUID)return;clearImportedPlantModel();state.model=info;}
+   if(controller.signal.aborted||state.user?.uid!==operationUID)return;
+   if(source==='files'){state.model={...info,healthyClass};}
+   else{await saveProfile({modelURL:source==='hosted'?info.modelURL:'',healthyClass});if(controller.signal.aborted||state.user?.uid!==operationUID)return;clearImportedPlantModel();state.model={...info,healthyClass};}
    state.scanMethod='teachable-machine';render();toast(source==='files'?'Modelo carregado nesta aba. Você já pode analisar uma foto.':'Modelo validado e conectado.');
   }
   if(form.id==='scan-form'){
-   scanLoadController?.abort();const controller=new AbortController();scanLoadController=controller;
+   const controller=operationController;
    const record=await generateScanReport(data,msg=>{updateLoading(msg,loadingToken);if(button?.isConnected)button.textContent=msg;},controller.signal);
    if(controller.signal.aborted||state.user?.uid!==operationUID)return;
    state.scanNotes=record.notes;state.scanSymptoms=record.symptoms;state.scanMethod=record.result.method;state.scanPlantId=record.plantId;state.draft=record;rememberDraft();scanLoadController=null;
    go('#report/draft');render();window.scrollTo({top:0,behavior:'instant'});toast('Relatório gerado. Você já pode ler e salvar em PDF.');
   }
  }catch(error){
-  if(error?.name==='AbortError'&&form.id==='scan-form'&&routePath()!=='scan')return;
+  if(cancelledByUser){toast(form.id==='scan-form'?'Análise cancelada. Sua foto e observações foram mantidas.':'Carregamento cancelado. Você pode tentar novamente.');return;}
+  if(error?.name==='AbortError'&&((form.id==='scan-form'&&routePath()!=='scan')||(form.id==='model-form'&&routePath()!=='profile')))return;
   const message=errorMessage(error),visibleError=document.querySelector(`#${form.id} .form-error`);
   if(visibleError){visibleError.textContent=message;visibleError.scrollIntoView({behavior:'smooth',block:'center'});visibleError.focus?.({preventScroll:true});}else toast(message,true);
   if(form.id==='scan-form'){
@@ -314,7 +347,7 @@ document.addEventListener('submit',async e=>{
    if(error.field)document.querySelector(error.field)?.focus({preventScroll:true});
   }
  }finally{
-  if(form.id==='model-form')modelLoadController=null;if(form.id==='scan-form')scanLoadController=null;
+  if(form.id==='model-form'&&modelLoadController===operationController)modelLoadController=null;if(form.id==='scan-form'&&scanLoadController===operationController)scanLoadController=null;
   hideLoading(loadingToken);pendingForms.delete(form.id);const current=document.querySelector(`#${form.id} [type="submit"]`);if(current){current.disabled=false;current.innerHTML=original;}syncScanForm();
  }
 });
@@ -335,6 +368,15 @@ $('#dialog').addEventListener('close',stopCamera);
 initPWA({onOnlineChange:()=>render(),onUpdateAvailable:()=>{openDialog('Uma nova folha por aqui',`<p class="dialog-copy">Há uma nova versão do Ecoplant. Salve seus registros antes de atualizar.</p><button class="btn block" data-action="update-app">Atualizar aplicativo</button>`);}});
 document.addEventListener('click',e=>{if(e.target.closest('[data-action="update-app"]'))applyUpdate();});
 render();
+// A chosen local garden takes precedence over a cached Firebase login. Its UID
+// and records remain separate; returning to the login clears this preference.
+if(accessMode()==='local'&&!/^#(?:login|register|recover)(?:\?|$)/.test(location.hash)){
+ void loadGuest({destination:location.hash}).catch(error=>{state.guest=false;state.user=null;rememberAccessMode('login');render();finishSplash();toast(errorMessage(error),true);});
+}else{
+ // The sign-in screen and the no-account entry are ready without waiting for
+ // a slow Firebase connection. Authentication can restore in the background.
+ finishSplash();
+}
 cloud.subscribeAuth(activateUser,error=>{authResolved=true;finishSplash();console.warn('Ecoplant: autenticação indisponível.',error?.code||'network');});
 
 cloud.ready.then(result=>{if(!result.ok)finishSplash();});

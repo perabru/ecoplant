@@ -1,11 +1,11 @@
 {
   "name": "ecoplant",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "PWA de acompanhamento de plantas com Firebase e Teachable Machine",
   "scripts": {
     "prepare:pages": "node scripts/prepare-pages.mjs",
-    "check": "node --check dist/app.js && node --check dist/classifier.js && node --check dist/plant-ai.js && node --check dist/plant-health.js && node --check dist/model-config.js && node --check dist/report.js && node --check dist/theme.js && node --check dist/experience.js && node tests/check-firebase-rules.mjs && node tests/check-classifier.mjs && node tests/check-report.mjs && node tests/check-model-config.mjs && node tests/check-plant-ai.mjs && node tests/check-plant-health.mjs"
+    "check": "node --check dist/app.js && node --check dist/classifier.js && node --check dist/plant-ai.js && node --check dist/plant-health.js && node --check dist/model-config.js && node --check dist/report.js && node --check dist/theme.js && node --check dist/experience.js && node tests/check-firebase-rules.mjs && node tests/check-classifier.mjs && node tests/check-report.mjs && node tests/check-model-config.mjs && node tests/check-plant-ai.mjs && node tests/check-plant-health.mjs && node --check dist/experience.js && node --check dist/sw.js && node tests/check-service-worker.mjs && node tests/check-app-flow.mjs"
   }
 }

@@ -26,6 +26,8 @@ assert(validate(userRules,base,{$uid:'u1'}),'empty possibilities are omitted as 
 const tm={method:'teachable-machine',modelURL:profile.modelURL,modelName:'Ecoplant',modelLabels:['Saudável','Mancha foliar'],predictions:[{className:'Saudável',probability:0.8},{className:'Mancha foliar',probability:0.2}],topClass:'Saudável',confidence:0.8,analyzedAt:new Date().toISOString()};
 base.analyses.a1.result=tm;
 assert(validate(userRules,base,{$uid:'u1'}),'TM fixture must validate');
+base.analyses.a1.result={...tm,severity:'observe',title:'Análise inconclusiva',confidence:0.51,predictions:[{className:'Saudável',probability:0.51},{className:'Mancha foliar',probability:0.49}]};
+assert(validate(userRules,base,{$uid:'u1'}),'uncertain TM reports must fit the existing cloud rules');
 for(const modelURL of ['local:ecoplant-model','https://perabru.github.io/ecoplant/my_model/']){
   base.analyses.a1.result={...tm,modelURL};
   assert(validate(userRules,base,{$uid:'u1'}),'imported and bundled reports must fit the existing Firebase schema');

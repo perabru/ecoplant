@@ -12,6 +12,7 @@ const image = { width: 640, height: 480 };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const checksum = bytes => createHash('sha256').update(bytes).digest('hex');
+const assetCacheName = 'ecoplant-ai-verified-v1';
 let serial = 0, passed = 0;
 const unhandled = [];
 process.on('unhandledRejection', error => unhandled.push(error));
@@ -30,6 +31,24 @@ function outputFixture({ top = 0, ood = false, uncertain = false } = {}) {
     logits: { data: logits, dims: [1, 38], disposed: 0, dispose() { this.disposed++; } },
     features: { data: features, dims: [1, 768], disposed: 0, dispose() { this.disposed++; } }
   };
+}
+function assetCacheFixture({ openError = false, writeError = false } = {}) {
+  const saved = new Map(), deleted = [], opened = [];
+  const cache = {
+    async match(url) { return saved.get(url)?.clone(); },
+    async put(url, response) {
+      if (writeError) throw new DOMException('Storage is full', 'QuotaExceededError');
+      saved.set(url, response.clone());
+    },
+    async delete(url) { deleted.push(url); return saved.delete(url); }
+  };
+  const storage = { async open(name) {
+    opened.push(name);
+    assert.equal(name, assetCacheName, 'only the dedicated public asset cache is used');
+    if (openError) throw new DOMException('Storage unavailable', 'SecurityError');
+    return cache;
+  } };
+  return { storage, saved, deleted, opened };
 }
 async function fresh(options = {}) {
   const centroids = options.centroids || centroidsFixture();
@@ -58,6 +77,7 @@ async function fresh(options = {}) {
     InferenceSession: { async create(bytes, config) { calls.creates.push({ bytes, config }); return options.create ? options.create(session, calls) : session; } }
   };
   globalThis.ort = options.noRuntime ? undefined : runtime;
+  globalThis.caches = options.cacheStorage;
   Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto });
   globalThis.document = {
     createElement(name) {
@@ -135,6 +155,52 @@ await test('concurrent loads share one cache and isolate caller metadata', async
   assert.equal(calls.creates.length, 1); assert.equal(calls.fetch.length, 2);
   await api.loadPlantAI(); assert.equal(calls.fetch.length, 2);
   api.clearPlantAI();
+});
+
+await test('verified public assets survive a module reload and work without network', async () => {
+  const persistent = assetCacheFixture();
+  const first = await fresh({ cacheStorage: persistent.storage });
+  await first.api.loadPlantAI(); await tick();
+  assert.deepEqual([...persistent.saved.keys()].sort(), [modelURL, centroidURL].sort());
+  first.api.clearPlantAI(); await tick();
+  assert.equal(persistent.saved.size, 2, 'clearing the tab does not delete public downloaded weights');
+  const second = await fresh({ cacheStorage: persistent.storage, fetch: () => { throw new TypeError('Offline'); } });
+  const stages = [];
+  const result = await second.api.classifyPlantAI(image, (_message, stage) => stages.push(stage));
+  assert.equal(result.topClass, 'Apple___Apple_scab');
+  assert.equal(second.calls.fetch.length, 0);
+  assert.equal(second.calls.creates.length, 1);
+  assert.ok(stages.includes('cache'));
+  second.api.clearPlantAI();
+});
+
+await test('cached assets are revalidated by hash and size and only damaged entries refetch', async () => {
+  for (const damage of ['hash', 'size']) {
+    const persistent = assetCacheFixture();
+    const wrong = modelFixture.slice(0, damage === 'size' ? -1 : undefined);
+    if (damage === 'hash') wrong[0] ^= 1;
+    persistent.saved.set(modelURL, new Response(wrong));
+    persistent.saved.set(centroidURL, new Response(centroidsFixture()));
+    const { api, calls } = await fresh({ cacheStorage: persistent.storage });
+    await api.loadPlantAI(); await tick();
+    assert.deepEqual(persistent.deleted, [modelURL]);
+    assert.deepEqual(calls.fetch.map(item => item.url), [modelURL]);
+    const repaired = new Uint8Array(await persistent.saved.get(modelURL).clone().arrayBuffer());
+    assert.equal(checksum(repaired), checksum(modelFixture));
+    api.clearPlantAI(); await tick();
+  }
+});
+
+await test('unavailable storage and quota failures do not prevent inference', async () => {
+  for (const cacheOptions of [{ openError: true }, { writeError: true }]) {
+    const persistent = assetCacheFixture(cacheOptions);
+    const { api, calls } = await fresh({ cacheStorage: persistent.storage });
+    const result = await api.classifyPlantAI(image);
+    assert.equal(result.topClass, 'Apple___Apple_scab');
+    assert.equal(calls.fetch.length, 2);
+    await tick(); assert.equal(persistent.saved.size, 0);
+    api.clearPlantAI(); await tick();
+  }
 });
 
 await test('valid disease output preserves raw labels, real scores and preprocessing', async () => {
@@ -241,9 +307,11 @@ await test('403 and 404 are not retried', async () => {
 
 await test('corrupt or truncated downloads never load a model', async () => {
   for (const truncated of [false, true]) {
+    const persistent = assetCacheFixture();
     const wrong = modelFixture.slice(0, truncated ? -1 : undefined); wrong[0] ^= 1;
-    const { api, calls } = await fresh({ fetch: (url, _init, _calls, respond) => respond(url, url === modelURL ? { body: wrong } : {}) });
+    const { api, calls } = await fresh({ cacheStorage: persistent.storage, fetch: (url, _init, _calls, respond) => respond(url, url === modelURL ? { body: wrong } : {}) });
     await assert.rejects(api.loadPlantAI(), code('invalid-model'));
+    await tick(); assert.equal(persistent.saved.has(modelURL), false, 'unverified weights must never be persisted');
     assert.equal(calls.creates.length, 0); api.clearPlantAI(); await tick();
   }
 });

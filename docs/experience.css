@@ -32,6 +32,7 @@
 .eco-loading-overlay{position:fixed;inset:0;z-index:900;display:grid;place-items:center;padding:24px;background:#173e323e;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
 .eco-loading-card{background:var(--eco-experience-card);color:var(--eco-experience-ink);border:1px solid var(--line,#e3e5d9);width:min(100%,315px);border-radius:20px;padding:38px 25px 24px;text-align:center;box-shadow:0 20px 80px #10271c26;animation:eco-loading-appear .16s ease-out both}
 .eco-loading-message{font-size:13px;font-weight:500;line-height:1.8;margin:25px 0 9px;overflow-wrap:anywhere}.eco-loading-detail{font-family:'Libre Caslon Display',Georgia,serif;font-size:20px;letter-spacing:-.03em;color:var(--muted,#768074)}
+.eco-loading-cancel{display:flex;margin:20px auto 0;min-width:140px;justify-content:center}.eco-loading-cancel[hidden]{display:none!important}
 @keyframes eco-loading-appear{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 /* Original seven-cell honeycomb geometry and timing; renamed and recolored. */
 .eco-loader{display:inline-flex;align-items:center;justify-content:center;width:80px;height:72px;vertical-align:middle;flex-shrink:0;--eco-loader-color:var(--green,#173e32)}

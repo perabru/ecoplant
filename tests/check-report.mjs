@@ -34,7 +34,22 @@ delete tmPredictionsOnly.result.confidence;
 assert.match(reportHTML(tmPredictionsOnly, plant), /<div class="rp-donut"/);
 const hostedTM = structuredClone(record);
 hostedTM.result.modelURL = 'https://teachablemachine.withgoogle.com/models/fixture/';
-assert.match(reportHTML(hostedTM, plant, { healthyClass: 'Classe A' }), /Classe saudável no modelo/);
+assert.doesNotMatch(reportHTML(hostedTM, plant, { healthyClass: 'Classe A' }), /Classe saudável no modelo/);
+// Changing a profile/model must never rewrite the interpretation of old reports.
+for (const modelURL of ['local:ecoplant-model', hostedTM.result.modelURL]) {
+  const snapshot = structuredClone(record);
+  snapshot.result.modelURL = modelURL;
+  snapshot.result.title = 'Classe saudável no modelo';
+  snapshot.result.summary = 'A classe saudável configurada nesta análise foi Classe A.';
+  const captured = reportHTML(snapshot, plant, {});
+  assert.match(captured, /Classe saudável no modelo/);
+  assert.match(captured, /A classe saudável configurada nesta análise foi Classe A/);
+  assert.equal(captured, reportHTML(snapshot, plant, {healthyClass:'Classe B'}));
+  snapshot.result.severity = 'observe';
+  snapshot.result.title = 'Análise inconclusiva';
+  assert.doesNotMatch(reportHTML(snapshot, plant), /Classe saudável no modelo/);
+  assert.match(reportHTML(snapshot, plant), /Classificação inconclusiva/);
+}
 
 // An uploaded photo without supplied signs is a record, never a health verdict.
 const observation = evaluateSymptoms([]);

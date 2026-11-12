@@ -14,6 +14,9 @@ const MODEL_REVISION = '06ebf5e308e100fd000d738c42b059ebb5f58a16';
 const SPACE_REVISION = 'b26e704bd72c2fe05632ea6f7be680a2eca0d8f5';
 const RUNTIME_VERSION = '1.30.0';
 const RUNTIME_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${RUNTIME_VERSION}/dist/`;
+// This cache contains only the two fixed, public binary assets below. It never
+// contains a photo, prediction, account, imported model or Firebase response.
+const ASSET_CACHE_NAME = 'ecoplant-ai-verified-v1';
 const LOAD_TIMEOUT = 120000;
 const INFERENCE_TIMEOUT = 45000;
 const MAX_ATTEMPTS = 3;
@@ -142,14 +145,16 @@ function retryDelay(response, attempt) {
   const seconds = Number(value), requested = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
   return Number.isFinite(requested) ? Math.max(fallback, Math.min(requested, 4000)) : fallback;
 }
-async function readAsset(response, asset, entry) {
+async function readAsset(response, asset, entry, source = 'download') {
   const signal = entry.controller.signal, header = Number(response.headers?.get('content-length'));
   if (Number.isFinite(header) && header > asset.bytes) throw failure('invalid-model', 'O arquivo da IA tem tamanho inesperado. Tente recarregar o aplicativo.');
   let result;
   const progress = loaded => {
     const percent = Math.min(100, Math.floor(loaded / asset.bytes * 100));
-    const message = asset.name === 'model' ? `Baixando IA: ${percent}% (${(loaded / 1000000).toFixed(1)} de 24,2 MB)…` : 'Preparando a verificação da imagem…';
-    announceEntry(entry, message, 'download', { loaded, total: asset.bytes, percent, resource: asset.name });
+    const message = source === 'cache'
+      ? 'Verificando os arquivos da IA salvos neste dispositivo…'
+      : asset.name === 'model' ? `Baixando IA: ${percent}% (${(loaded / 1000000).toFixed(1)} de 24,2 MB)…` : 'Preparando a verificação da imagem…';
+    announceEntry(entry, message, source, { loaded, total: asset.bytes, percent, resource: asset.name });
   };
   if (response.body?.getReader) {
     const reader = response.body.getReader(), chunks = [];
@@ -182,8 +187,45 @@ async function readAsset(response, asset, entry) {
   if (hash !== asset.sha256) throw failure('invalid-model', 'A verificação dos arquivos da IA falhou. Recarregue a página e tente novamente.');
   return result;
 }
+async function readCachedAsset(asset, entry) {
+  const signal = entry.controller.signal;
+  if (!globalThis.caches?.open) return null;
+  try {
+    const cache = await abortable(globalThis.caches.open(ASSET_CACHE_NAME), signal);
+    const response = await abortable(cache.match(asset.url), signal);
+    if (!response) return null;
+    try {
+      // Cache entries are not trusted: the same byte count and SHA-256 checks
+      // are repeated before any cached model is handed to the runtime.
+      return await readAsset(response, asset, entry, 'cache');
+    } catch (error) {
+      checkSignal(signal);
+      try { await abortable(cache.delete(asset.url), signal); } catch { checkSignal(signal); }
+      return null;
+    }
+  } catch (error) {
+    checkSignal(signal);
+    // Private mode, disabled storage and quota errors must not stop inference.
+    return null;
+  }
+}
+async function rememberVerifiedAsset(asset, bytes) {
+  if (!globalThis.caches?.open) return;
+  try {
+    // Construct the response before yielding: a runtime may subsequently take
+    // ownership of the model's ArrayBuffer. Response retains its own bytes.
+    const response = new Response(bytes, { headers: {
+      'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.byteLength)
+    } });
+    const cache = await globalThis.caches.open(ASSET_CACHE_NAME);
+    await cache.put(asset.url, response);
+  } catch { /* Persistence is an optional optimization, including quota failures. */ }
+}
 async function fetchAsset(asset, entry) {
   const signal = entry.controller.signal;
+  const cached = await readCachedAsset(asset, entry);
+  checkSignal(signal);
+  if (cached) return cached;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     checkSignal(signal);
     let response;
@@ -192,7 +234,10 @@ async function fetchAsset(asset, entry) {
       if (!response.ok) throw httpFailure(response.status);
       // HF serves fixed revision files through its signed CDN redirects. The
       // exact SHA-256 below verifies the artifact independently of that CDN.
-      return await readAsset(response, asset, entry);
+      const bytes = await readAsset(response, asset, entry);
+      // Saving never delays the result and its rejection is handled internally.
+      void rememberVerifiedAsset(asset, bytes);
+      return bytes;
     } catch (error) {
       checkSignal(signal);
       const transient = !error.code || RETRYABLE_STATUS.has(error.status);

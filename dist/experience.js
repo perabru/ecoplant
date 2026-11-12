@@ -5,6 +5,7 @@ let initialized = false;
 let splash, loading, splashStarted = 0, splashTimer, splashFallback, splashFinishing;
 let nextOperation = 0;
 const operations = new Map();
+const cancellationActions = new Map();
 let oldOverflow, previousFocus;
 
 /** Original seven-cell Uiverse honeycomb markup, scoped for Ecoplant. */
@@ -88,7 +89,21 @@ export function initExperience() {
   }
   loading.className = 'eco-loading-overlay';
   loading.hidden = true;
-  loading.innerHTML = `<div class="eco-loading-card" role="status" aria-live="polite" aria-atomic="true">${loaderHTML()}<p class="eco-loading-message">Só um instante…</p><span class="eco-loading-detail"><img src="./assets/ecoplant-logo.png" width="26" height="26" alt="">Ecoplant</span></div>`;
+  loading.innerHTML = `<div class="eco-loading-card" role="status" aria-live="polite" aria-atomic="true">${loaderHTML()}<p class="eco-loading-message">Só um instante…</p><span class="eco-loading-detail"><img src="./assets/ecoplant-logo.png" width="26" height="26" alt="">Ecoplant</span><button type="button" class="btn secondary eco-loading-cancel" hidden>Cancelar</button></div>`;
+  loading.querySelector('.eco-loading-cancel').addEventListener('click', () => {
+    const token = [...operations.keys()].at(-1);
+    const cancel = cancellationActions.get(token);
+    if (!cancel) return;
+    cancellationActions.delete(token);
+    try { cancel(); } finally { hideLoading(token); }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || loading.hidden) return;
+    const button = loading.querySelector('.eco-loading-cancel');
+    if (button.hidden) return;
+    event.preventDefault();
+    button.click();
+  });
   syncBusy();
 }
 
@@ -105,14 +120,16 @@ export function finishSplash() {
 }
 
 /** Returns an operation token; use hideLoading(token) in that operation's finally. */
-export function showLoading(message = 'Só um instante…') {
+export function showLoading(message = 'Só um instante…', { onCancel } = {}) {
   if (!initialized) initExperience();
   const token = ++nextOperation;
   if (!operations.size) previousFocus = document.activeElement;
   operations.set(token, String(message));
+  if (typeof onCancel === 'function') cancellationActions.set(token, onCancel);
   loading.hidden = false;
   updateLoading(message, token);
   syncBusy();
+  if (typeof onCancel === 'function') loading.querySelector('.eco-loading-cancel').focus({ preventScroll: true });
   return token;
 }
 
@@ -120,20 +137,29 @@ export function showLoading(message = 'Só um instante…') {
 export function updateLoading(message = 'Só um instante…', token) {
   if (!loading) return;
   const activeToken = token ?? [...operations.keys()].at(-1);
-  if (activeToken !== undefined && operations.has(activeToken)) operations.set(activeToken, String(message));
-  loading.querySelector('.eco-loading-message').textContent = String(message);
+  if (activeToken === undefined || !operations.has(activeToken)) return;
+  operations.set(activeToken, String(message));
+  paintLoading();
+}
+
+function paintLoading() {
+  if (!loading) return;
+  const token = [...operations.keys()].at(-1);
+  if (token === undefined) return;
+  loading.querySelector('.eco-loading-message').textContent = operations.get(token);
+  loading.querySelector('.eco-loading-cancel').hidden = !cancellationActions.has(token);
 }
 
 /** Without a token, releases the most recent task. Every show must have one release. */
 export function hideLoading(token) {
   const activeToken = token ?? [...operations.keys()].at(-1);
   operations.delete(activeToken);
+  cancellationActions.delete(activeToken);
   if (operations.size) {
-    const message = [...operations.values()].at(-1);
-    loading.querySelector('.eco-loading-message').textContent = message;
+    paintLoading();
   } else if (loading) {
     loading.hidden = true;
-    if (previousFocus?.isConnected && document.activeElement === document.body) {
+    if (previousFocus?.isConnected && (document.activeElement === document.body || loading.contains(document.activeElement))) {
       try { previousFocus.focus({preventScroll:true}); } catch { /* Removed or non-focusable. */ }
     }
     previousFocus = null;

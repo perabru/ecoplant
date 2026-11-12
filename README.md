@@ -5,6 +5,15 @@
 
 PWA em português para registrar plantas, fotografar folhas e acompanhar sua evolução. A interface usa verde floresta, ilustrações botânicas e temas claro e escuro. Funciona como site e pode ser instalado na tela inicial do Android e do iPhone.
 
+## Começar a usar
+
+1. Abra [Analisar planta](https://perabru.github.io/ecoplant/#scan).
+2. Toque em **Analisar uma planta sem conta** para usar neste aparelho, ou entre na sua conta.
+3. Envie uma foto nítida de uma folha e toque em **Analisar com IA e gerar relatório**.
+4. Leia a avaliação, use **Salvar no histórico** e **Imprimir / PDF** quando precisar.
+
+Na versão 1.1.0, a escolha do modo local é retomada ao recarregar e o endereço de análise é preservado. O carregamento da IA e do modelo próprio pode ser cancelado sem perder a foto. O aplicativo guarda uma cópia verificada dos arquivos públicos da IA quando o navegador permite; isso reduz novos downloads. A primeira preparação ainda requer internet, e a disponibilidade offline depende do cache e do armazenamento do navegador.
+
 ## Recursos
 
 - Cadastro e login com e-mail/senha ou conta Google, recuperação e perfil.
@@ -69,10 +78,10 @@ O modelo é distribuído pelo autor sob **CC BY-SA 4.0**; o backbone DINOv2 usa 
 Treine um projeto de **imagem**, com pelo menos duas classes, e reserve imagens novas para avaliação. Exporte em **TensorFlow.js** e escolha uma das opções:
 
 - **Link hospedado:** use **Fazer upload** no Teachable Machine e cole o endereço `https://teachablemachine.withgoogle.com/models/ID/` em **Perfil → Teachable Machine**.
-- **Arquivos do modelo:** use a exportação para download e, em **Perfil → Teachable Machine → Arquivos do modelo**, selecione juntos `model.json`, `metadata.json` e `weights.bin` — ou o nome do arquivo `.bin` declarado no manifesto de `model.json`. Esta opção aceita um único arquivo de pesos `.bin`. A seleção vale apenas para a sessão/aba e deve ser repetida após recarregar a página. Os arquivos selecionados não são enviados ao Firebase.
+- **Arquivos do modelo:** use a exportação para download e, em **Perfil → Teachable Machine → Arquivos do modelo**, selecione juntos `model.json`, `metadata.json` e todos os arquivos `.bin` declarados no manifesto de `model.json`. São aceitos até 32 arquivos de pesos, somando no máximo 128 MB, com os nomes originais. A seleção vale apenas para a sessão/aba e deve ser repetida após recarregar a página. Os arquivos selecionados não são enviados ao Firebase.
 - **Modelo empacotado:** coloque os mesmos três arquivos em `dist/my_model/`. A fonte principal é `dist/`; execute `npm run prepare:pages` para copiá-los para `docs/my_model/`. No site, o modelo fica disponível pelo caminho relativo `./my_model/`.
 
-Para modelos hospedados ou empacotados, opcionalmente informe o nome exato da classe saudável; o aplicativo confere se ela existe no modelo. Relatórios de arquivos importados preservam os nomes e as probabilidades das classes, sem reinterpretá-los pelas configurações de uma importação posterior. O HTML de exemplo fornecido pelo Teachable Machine **não contém os pesos treinados** e não substitui os arquivos exportados.
+Em qualquer origem de modelo, opcionalmente informe o nome exato da classe saudável; o aplicativo confere se ela existe no modelo. A interpretação escolhida é preservada no título e no resumo de cada resultado, sem depender das configurações futuras do perfil e sem mudar o esquema do Firebase. Relatórios antigos sem essa informação continuam mostrando a classe original, sem inferir retrospectivamente a condição saudável. Previsões do Teachable Machine abaixo de 0,75 ficam inconclusivas: esse limite é uma política do aplicativo, não acurácia comprovada. O HTML de exemplo fornecido pelo Teachable Machine **não contém os pesos treinados** e não substitui os arquivos exportados.
 
 A pasta `my_model` está preparada, mas **o treinamento próprio do EcoPlant ainda não foi fornecido**. A opção de modelo empacotado permanece desabilitada até a exportação completa ser adicionada. Isso não afeta a IA pronta para uso descrita acima. Não são feitas tentativas de baixar os arquivos ausentes.
 

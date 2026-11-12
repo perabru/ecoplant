@@ -131,10 +131,14 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const suppliedConfidence = probability(result.confidence) !== null;
   // Plant AI omits confidence/predictions when the image is outside its supported scope.
   // Never recover a disease label or chart from incomplete/inconclusive output.
-  const inconclusive = isAutomated && (result.severity === 'inconclusive' || (isAI && assessment.status === 'inconclusive'));
+  const inconclusive = isAutomated && (result.severity === 'inconclusive'
+    || (isTM && result.title === 'Análise inconclusiva') || (isAI && assessment.status === 'inconclusive'));
   const hasConfidence = !inconclusive && (suppliedConfidence || (isTM && predictions.length > 0));
   const confidence = suppliedConfidence ? probability(result.confidence) : predictions[0]?.probability ?? 0;
-  const healthy = isTM && !inconclusive && result.modelURL !== 'local:ecoplant-model' && Boolean(profile.healthyClass) && topClass === String(profile.healthyClass);
+  // The interpretation belongs to this analysis, not to the user's current
+  // model settings. title/summary also fit the existing Firebase rules.
+  const healthy = isTM && !inconclusive && result.title === 'Classe saudável no modelo'
+    && Array.isArray(result.modelLabels) && result.modelLabels.includes(topClass);
   const photo = picture(record.photo) || picture(plant.photo);
   const plantName = String(plant.name || '').trim() || 'Planta da foto';
   const modelURL = isTM && result.modelURL === 'local:ecoplant-model' ? 'Arquivos do Teachable Machine importados nesta aba' : modelAddress(result.modelURL);
@@ -157,7 +161,7 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const scope = Array.isArray(result.modelLabels) ? result.modelLabels.filter(label => typeof label === 'string' && label.trim()).length : 0;
   const modelSummary = isAI
     ? assessment.summary
-    : isTM ? (inconclusive ? 'O modelo não apresentou uma classificação conclusiva para esta imagem.' : `O modelo escolheu a classe de maior probabilidade entre ${scope || 'as'} classes disponíveis. O resultado depende das imagens e das condições utilizadas no treinamento.`)
+    : isTM ? (inconclusive ? 'O modelo não apresentou uma classificação conclusiva para esta imagem.' : String(result.summary || `O modelo escolheu a classe de maior probabilidade entre ${scope || 'as'} classes disponíveis. O resultado depende das imagens e das condições utilizadas no treinamento.`))
     : isObservation ? 'A fotografia serve como registro. Nenhum sinal foi informado e a imagem não foi analisada automaticamente.'
     : 'Esta triagem organiza os sinais que você informou. A fotografia foi usada como registro e não foi classificada automaticamente.';
   const disclaimer = isAI

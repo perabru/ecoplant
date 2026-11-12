@@ -313,17 +313,43 @@ await check('FileList import checks filenames, calls the correct TM API order an
   assert.throws(() => api.validateModelURL(api.IMPORTED_MODEL_URL), { code: 'classifier/model-files-missing' });
 });
 
-await check('Missing, duplicate, mismatched and multi-shard imports fail before library loading', async () => {
+await check('Missing, duplicate, mismatched and unrelated weights fail before library loading', async () => {
   const { api, calls } = await fresh();
   const files = exportedFiles();
   await assert.rejects(api.loadPlantModelFromFiles(files.slice(0, 2)), { code: 'classifier/model-files-missing' });
   await assert.rejects(api.loadPlantModelFromFiles([...files, files[0]]), { code: 'classifier/invalid-model-files' });
   await assert.rejects(api.loadPlantModelFromFiles(exportedFiles({ weightName: 'renamed.bin' })), { code: 'classifier/weights-name-mismatch' });
-  await assert.rejects(api.loadPlantModelFromFiles([...files, new File(['mock'], 'other.bin')]), { code: 'classifier/multiple-weight-files' });
+  await assert.rejects(api.loadPlantModelFromFiles([...files, new File(['mock'], 'other.bin')]), { code: 'classifier/unexpected-weight-files' });
   await assert.rejects(api.loadPlantModelFromFiles(exportedFiles({ graph: {
     ...topology, weightsManifest: [{ paths: ['weights.bin', 'part2.bin'], weights: [] }]
-  } })), { code: 'classifier/multiple-weight-files' });
+  } })), { code: 'classifier/weights-name-mismatch' });
   assert.equal(calls.files.length, 0);
+});
+
+await check('Local multi-shard import follows manifest order without any network request', async () => {
+  const { api, calls } = await fresh();
+  const graph = { ...topology, weightsManifest: [
+    { paths:['first.bin','second.bin'], weights:[{name:'example',shape:[2],dtype:'float32'}] }
+  ] };
+  const files = [new File([JSON.stringify(graph)],'model.json'), new File([JSON.stringify(metadata)],'metadata.json'),
+    new File([new Uint8Array([5,6,7,8])],'second.bin'), new File([new Uint8Array([1,2,3,4])],'first.bin')];
+  const info = await api.loadPlantModelFromFiles(files);
+  assert.equal(info.source,'files');
+  assert.equal(calls.fetch.length,0);
+  assert.equal(calls.files.length,0);
+  assert.deepEqual([...new Uint8Array(calls.load[0].artifacts.weightData)],[1,2,3,4,5,6,7,8]);
+  assert.equal((await api.classifyPlant(canvas,api.IMPORTED_MODEL_URL)).topClass,labels[0]);
+  api.clearImportedPlantModel();
+  assert.equal(calls.models[0].disposed,1);
+});
+
+await check('Uncertain Teachable Machine predictions remain inconclusive', async () => {
+  const { api } = await fresh({model:{predict:async()=>[
+    {className:labels[0],probability:0.51},{className:labels[1],probability:0.49}
+  ]}});
+  const result = await api.classifyPlant(canvas,api.BUNDLED_MODEL_URL);
+  assert.equal(result.severity,'observe');
+  assert.equal(result.title,'Análise inconclusiva');
 });
 
 await check('Metadata, healthy-class selection and hostile weight manifests are validated', async () => {
