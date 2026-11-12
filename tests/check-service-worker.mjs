@@ -6,8 +6,8 @@ import vm from 'node:vm';
 // They do not assert that a third-party CDN or a browser is currently online.
 const source = fs.readFileSync(new URL('../dist/sw.js', import.meta.url), 'utf8');
 const base = 'https://perabru.github.io/ecoplant/';
-const shellName = 'ecoplant-shell-v12-ecoplant-functional';
-const sdkName = 'ecoplant-sdk-v12-ecoplant-functional';
+const shellName = 'ecoplant-shell-v13-ecoplant-framing';
+const sdkName = 'ecoplant-sdk-v13-ecoplant-framing';
 const aiName = 'ecoplant-ai-verified-v1';
 let passed = 0;
 

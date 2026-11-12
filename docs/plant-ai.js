@@ -6,7 +6,7 @@
  * Fixed revisions and CC BY-SA 4.0 attribution: assets/plant-ai-attribution.txt.
  * No photo is sent to a model server. There is no synthetic prediction fallback.
  */
-import { describePlantHealth } from './plant-health.js';
+import { describePlantHealth, describeInconclusiveReason } from './plant-health.js';
 
 const MODEL_NAME = 'EcoPlant IA · DINOv2 PlantVillage';
 const MODEL_URL = 'https://huggingface.co/rodynaemad/plant-disease-dinov2-small';
@@ -361,11 +361,13 @@ function outputsToResult(outputs, centroids) {
     similarity = Math.max(similarity, dot / norm);
   }
   const base = { method: 'plant-ai', modelName: MODEL_NAME, modelURL: MODEL_URL, modelLabels: [...LABELS], analyzedAt: new Date().toISOString(), disclaimer: 'Avaliação preliminar por modelo aberto de Rodayna Emad Mohamed (rodynaemad), licença CC BY-SA 4.0. Treinado em folhas isoladas do PlantVillage: 38 classes de 14 culturas. Fotos de campo, outras espécies e problemas ausentes do treinamento podem produzir erros. O cálculo da IA ocorre neste dispositivo. A pontuação não confirma um diagnóstico; procure orientação agronômica antes de tratar a planta.' };
-  if (similarity < OOD_THRESHOLD) return {
-    ...base, title: 'Análise inconclusiva', topClass: 'Análise inconclusiva', severity: 'observe',
-    summary: 'A imagem não foi suficientemente compatível com as folhas e classes conhecidas pela IA, ou a classificação ficou incerta. Nenhuma doença nem condição saudável foi atribuída a esta foto.',
-    care: ['Fotografe uma única folha de perto, inteira no enquadramento, em boa luz e com fundo simples.', 'Use uma folha de uma das 14 culturas reconhecidas e tente outra foto nítida.', 'Se os sinais persistirem ou avançarem, peça uma avaliação agronômica e leve fotos da planta inteira.']
-  };
+  if (similarity < OOD_THRESHOLD) {
+    const explanation = describeInconclusiveReason('model-compatibility');
+    return {
+      ...base, title: explanation.title, topClass: explanation.title, severity: 'observe',
+      summary: explanation.summary, care: explanation.care
+    };
+  }
   const best = predictions[0];
   const measured = { ...base, topClass: best.className, confidence: best.probability, predictions };
   const health = describePlantHealth(measured);

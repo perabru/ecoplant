@@ -151,7 +151,11 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const isObservation = !isAutomated && !symptoms.length && !possibilities.length;
   const title = inconclusive ? 'Análise inconclusiva' : isTM ? topClass : isAI ? assessment.title : String(result.title || (isObservation ? 'Registro fotográfico' : 'Registro de observação'));
   const suppliedCare = isAI ? assessment.care : !isTM && Array.isArray(result.care) ? result.care.filter(item => typeof item === 'string' && item.trim()) : [];
-  const care = suppliedCare.length ? suppliedCare : [
+  const care = suppliedCare.length ? suppliedCare : isTM && inconclusive ? [
+    'Use uma foto nítida, com a folha inteira e centralizada, semelhante aos enquadramentos usados no treinamento.',
+    'Confira se o modelo conectado contém a planta e as classes que você quer comparar.',
+    'Se continuar incerto, revise as imagens das classes, acrescente exemplos variados e avalie o modelo com fotos que não participaram do treinamento.'
+  ] : [
     'Observe o verso das folhas, o caule e o substrato. Registre alterações que a foto não mostra.',
     'Fotografe novamente a mesma região, com iluminação e enquadramento semelhantes, para comparar a evolução.',
     'Anote mudanças recentes de rega, luz, local e adubação antes de decidir pelos próximos cuidados.',
@@ -185,12 +189,13 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const resultNote = isAutomated ? (inconclusive ? 'Não há uma identificação conclusiva para esta imagem.' : 'Pontuações das classes comparadas pela IA. Elas não representam a porcentagem de saúde da planta.')
     : isObservation ? 'Fotografia e observações para acompanhar a evolução.' : 'Hipóteses baseadas nos sinais que você selecionou.';
   const resultContent = isAutomated ? (inconclusive
-    ? '<p class="rp-section-note">Não foi possível distinguir com segurança uma folha saudável de uma folha com alterações. Fotografe uma única folha inteira, bem iluminada, contra um fundo simples e confira se a planta está entre as culturas atendidas.</p>'
+    ? `<p class="rp-section-note">${isAI ? 'Nenhuma condição de saúde foi atribuída a esta foto. Ajuste o enquadramento de uma única folha e confira se a planta está entre as culturas atendidas. Um novo recorte pode ajudar, mas não garante que o modelo conheça o caso.' : 'O modelo próprio não diferenciou suas classes com confiança suficiente. Confira as classes do treinamento e tente uma foto com boa luz e enquadramento semelhante aos exemplos utilizados.'}</p>`
     : bars || '<p class="rp-section-note">Não há probabilidades disponíveis neste registro.</p>')
     : guidedCards || '<p class="rp-section-note">Não foram sugeridas hipóteses para este registro.</p>';
   const verdictTone = isAI ? assessment.tone : '';
   const verdictIcon = isAI ? assessment.status === 'healthy' ? 'check' : inconclusive ? 'search' : 'alert' : healthy ? 'check' : 'info';
   const conditionLabel = assessment?.status === 'pest' ? 'Possível praga' : 'Possível doença';
+  const recoveryActions = inconclusive ? `<div class="rp-recovery no-print" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px">${picture(record.photo) ? `<button type="button" class="btn secondary small" data-action="adjust-report-photo">${icon('camera')}Ajustar foto e tentar novamente</button>` : ''}${isAI ? '<a class="btn secondary small" href="#profile?model=files">Usar meu modelo treinado</a>' : ''}</div>` : '';
   const verdictDetails = isAI && !inconclusive ? `<dl class="rp-verdict-details"><div><dt>Planta reconhecida pelo modelo</dt><dd>${text(assessment.crop)}</dd></div>${assessment.status === 'disease' || assessment.status === 'pest' ? `<div class="rp-verdict-condition"><dt>${conditionLabel}</dt><dd>${text(assessment.condition)}</dd></div>` : `<div><dt>Aspecto da folha</dt><dd>Compatível com a classe saudável</dd></div>`}</dl>` : '';
   return `${CSS}<article class="eco-report"${isAI ? ` data-health-status="${escapeHTML(assessment.status)}"` : ''} aria-label="Relatório Ecoplant de ${text(plantName)}">
     <header class="rp-toolbar no-print"><div><div class="eyebrow">ECOPLANT / ACOMPANHAMENTO</div><h1>Relatório da planta</h1><p>Leia o relatório aqui e exporte quando precisar.</p></div><div class="rp-toolbar-actions"><button type="button" class="btn secondary small" data-action="print-report">${icon('print')}Imprimir / PDF</button><button type="button" class="btn secondary small" data-action="export-report">${icon('download')}Exportar relatório</button></div></header>
@@ -204,12 +209,13 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
           ${isAI ? `<p class="rp-verdict-explanation">${text(modelSummary)}</p>` : ''}
           ${isAutomated && hasConfidence ? `<div class="rp-metric"><div class="rp-donut" role="img" aria-label="Confiança ${isAI ? 'na classificação' : 'do modelo'}: ${percent(confidence)}" style="--rp-dash:${(251.3274 * (1-confidence)).toFixed(4)}"><svg viewBox="0 0 96 96" aria-hidden="true"><circle cx="48" cy="48" r="40"/><circle class="rp-progress" cx="48" cy="48" r="40"/></svg><strong>${percent(confidence)}</strong></div><div class="rp-metric-label"><strong>${isAI ? 'Confiança na classificação' : 'Confiança do modelo'}</strong><p>Probabilidade atribuída à classe. Este valor não mede a saúde ou a gravidade da doença.</p></div></div>` : !isAI ? `<p class="rp-model-note">${isAutomated ? (inconclusive ? 'Não foi atribuída uma classificação com confiança suficiente.' : 'A confiança do modelo não está disponível neste registro.') : text(result.summary, 'Observações registradas para acompanhar a evolução da planta.')}</p>` : ''}
           ${!isAI ? `<p class="rp-model-note">${text(modelSummary)}</p>` : ''}
+          ${recoveryActions}
         </div>
       </section>
       <dl class="rp-record-details"><div><dt>Planta</dt><dd>${text(plantName)}</dd></div><div><dt>Espécie</dt><dd>${text(plant.species)}</dd></div><div><dt>Local</dt><dd>${text(plant.location)}</dd></div><div><dt>Responsável</dt><dd>${text(author)}</dd></div></dl>
       <div class="rp-body">
         <section class="rp-section"><h3>${text(resultHeading)}</h3><p class="rp-section-note">${text(resultNote)}</p>${resultContent}</section>
-        <section class="rp-section"><h3>Próximos cuidados</h3><ul class="rp-checks">${care.slice(0,6).map(item => `<li>${icon('check')}<span>${text(item)}</span></li>`).join('')}</ul></section>
+        <section class="rp-section"><h3>${inconclusive?'Para tentar novamente':'Próximos cuidados'}</h3><ul class="rp-checks">${care.slice(0,6).map(item => `<li>${icon('check')}<span>${text(item)}</span></li>`).join('')}</ul></section>
         <section class="rp-section"><h3>Suas observações</h3><div class="rp-observation">${text(record.notes, 'Nenhuma observação adicional foi informada neste registro.')}</div>${symptoms.length ? `<div class="rp-chips" aria-label="Sinais informados">${symptoms.slice(0,12).map(v => `<span class="rp-chip">${text(SYMPTOM_NAMES[v] || v)}</span>`).join('')}</div>` : ''}</section>
         <section class="rp-section"><h3>Como acompanhar</h3><ul class="rp-checks"><li>${icon('camera')}<span>Use esta foto como referência. Uma nova avaliação cria um registro separado e preserva este resultado.</span></li><li>${icon('clock')}<span>Compare o aspecto das folhas e suas anotações ao longo do tempo. Não use a variação da confiança como medida de melhora.</span></li></ul></section>
         <section class="rp-metadata"><div><h3>Método de avaliação</h3><p>${text(methodLabel)}<br>${isAutomated ? text(modelName) : 'A foto não foi analisada automaticamente.'}${isAutomated && scope ? `<br>${scope} classes no treinamento do modelo` : ''}</p></div><div><h3>${isAutomated ? 'Origem do modelo' : 'Sobre este registro'}</h3><p>${isAutomated ? (modelURL ? text(modelURL) : 'Endereço do modelo não informado neste registro.') : isObservation ? 'Registro fotográfico sem identificação automática e sem hipótese de doença.' : 'As hipóteses são orientativas e dependem da precisão dos sinais informados.'}</p></div></section>

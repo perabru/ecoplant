@@ -1,7 +1,7 @@
 // Interpretation contracts with explicit fixtures, not recognition/accuracy tests.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { describePlantHealth, PLANT_HEALTH_POLICY, PLANT_HEALTH_POLICY_VERSION } from '../dist/plant-health.js';
+import { describePlantHealth, describeInconclusiveReason, PLANT_HEALTH_POLICY, PLANT_HEALTH_POLICY_VERSION } from '../dist/plant-health.js';
 
 const healthyClass = 'Tomato___healthy';
 const diseaseClass = 'Apple___Apple_scab';
@@ -108,6 +108,49 @@ test('inference-time OOD result remains inconclusive without scores', () => {
 test('explicit inconclusive markers override apparently confident stale scores', () => {
   for (const field of ['title', 'topClass']) assertInconclusive({ ...fixture(), [field]: 'Análise inconclusiva' });
   for (const field of ['status', 'severity']) assertInconclusive({ ...fixture(), [field]: 'inconclusive' });
+});
+test('saved low-confidence feedback keeps its original explanation and recovery steps', () => {
+  const original = describePlantHealth(fixture(healthyClass, 0.62));
+  const stored = { method:'plant-ai', title:original.title, topClass:original.title,
+    severity:'observe', summary:original.summary, care:[...original.care] };
+  const before = JSON.stringify(stored);
+  const restored = assertInconclusive(stored);
+  assert.equal(restored.reason, 'low-confidence');
+  assert.equal(restored.summary, original.summary);
+  assert.deepEqual(restored.care, original.care);
+  restored.care[0] = 'Changed only in the returned copy';
+  assert.equal(JSON.stringify(stored), before);
+});
+test('new and legacy compatibility failures retain neutral scope/enframing feedback', () => {
+  const feedback = describeInconclusiveReason('model-compatibility');
+  const stored = { method:'plant-ai', title:feedback.title, topClass:feedback.title,
+    severity:'observe', summary:feedback.summary, care:[...feedback.care] };
+  const restored = assertInconclusive(stored);
+  assert.equal(restored.reason, 'model-compatibility');
+  assert.equal(restored.summary, feedback.summary);
+  assert.deepEqual(restored.care, feedback.care);
+  const legacy = { ...stored, summary:'A imagem não foi suficientemente compatível com as folhas e classes conhecidas pela IA, ou a classificação ficou incerta. Nenhuma doença nem condição saudável foi atribuída a esta foto.',
+    care:['Fotografe uma única folha de perto, inteira no enquadramento, em boa luz e com fundo simples.'] };
+  const oldResult = assertInconclusive(legacy);
+  assert.equal(oldResult.reason, 'model-compatibility');
+  assert.equal(oldResult.summary, legacy.summary);
+  assert.deepEqual(oldResult.care, legacy.care);
+});
+test('neutral titles do not recover arbitrary disease summaries or stale scored records', () => {
+  const feedback = describeInconclusiveReason('model-compatibility');
+  const stored = { method:'plant-ai', title:feedback.title, topClass:feedback.title,
+    severity:'observe', summary:feedback.summary, care:[...feedback.care] };
+  for (const result of [
+    { ...stored, summary:'A planta tem sarna. Trate agora.', care:['Tratar a sarna.'] },
+    { ...stored, confidence:0.98 },
+    { ...stored, predictions:fixture().predictions },
+    { ...stored, topClass:diseaseClass }
+  ]) {
+    const restored = assertInconclusive(result);
+    assert.equal(restored.reason, 'explicit-inconclusive');
+    assert.doesNotMatch(restored.summary, /tem sarna|Trate agora/);
+    assert.doesNotMatch(restored.care.join(' '), /Tratar a sarna/);
+  }
 });
 test('guided/custom/missing results are never interpreted as plant AI', () => {
   for (const result of [null, undefined, false, [], 'healthy', {}, { ...fixture(), method: 'guided' }, { ...fixture(), method: 'teachable-machine' }]) {

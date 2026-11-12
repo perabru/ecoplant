@@ -26,6 +26,7 @@
     "experience.css",
     "experience.js",
     "firebase.js",
+    "image-framing.js",
     "index.html",
     "local-db.js",
     "manifest.webmanifest",

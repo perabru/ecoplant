@@ -52,6 +52,25 @@ console.log('PASS local deep links, draft restoration, Firebase isolation, stale
  assert.equal(record.notes,'Folha do aluno');assert.equal(record.photo,state.scanPhoto);
 }
 console.log('PASS TM healthy-class snapshot survives later configuration changes without new Firebase fields');
+// Exercise the actual card click handlers: a custom model must stay selected.
+const methodSource=source.slice(source.indexOf('function selectedScanMethod('),source.indexOf('function activeModelSource('));
+const clickSource=source.slice(source.indexOf("document.addEventListener('click',async e=>{"),source.indexOf("document.addEventListener('submit',async e=>{"));
+for(const preferred of ['teachable-machine','plant-ai','guided','']){
+ const c={state:{scanMethod:preferred,scanPhoto:'',scanOriginalPhoto:''},activeModelURL:()=> 'local:ecoplant-model',photoSafe:v=>v,findPlant:()=>({id:'leaf',photo:'data:image/jpeg;base64,AA=='}),document:{addEventListener:(event,fn)=>{c.click=fn;}},go:hash=>{c.route=hash;},scanFailure:message=>new Error(message),console};
+ vm.createContext(c);vm.runInContext(methodSource+'\n'+clickSource,c);
+ for(const action of ['analyze-plant-photo','new-plant-analysis']){
+  const button={dataset:{action,id:'leaf'}};
+  await c.click({target:{closest:()=>button}});
+  assert.equal(c.state.scanMethod,preferred||'teachable-machine');
+  assert.equal(c.route,'#scan?plant=leaf');
+  assert.equal(c.state.scanOriginalPhoto,c.state.scanPhoto);
+ }
+ c.activeModelURL=()=>'';c.state.scanMethod='teachable-machine';
+ assert.equal(c.selectedScanMethod(),'teachable-machine','A missing imported model requires reconnection, not a silent switch');
+ c.state.scanMethod='';assert.equal(c.selectedScanMethod(),'plant-ai');
+}
+console.log('PASS plant-card actions preserve the selected model; missing local models never silently switch');
+
 // Run the real loading module against a minimal DOM. No inference is simulated here.
 const nodes=new Map(),events=new Map();let timer=0;const timers=new Map();
 class Element {

@@ -62,20 +62,57 @@ const lowerFirst = value => value.charAt(0).toLocaleLowerCase('pt-BR') + value.s
 const HEALTHY_ONLY_CROPS = new Set(['Mirtilo', 'Framboeseira', 'Soja']);
 const DISEASE_ONLY_CROPS = new Set(['Laranjeira', 'Abóbora']);
 
-function inconclusive(reason) {
-  const detail = reason === 'low-confidence' || reason === 'close-predictions'
-    ? 'A IA não diferenciou as classes com segurança suficiente nesta foto.'
-    : 'A imagem está fora do conjunto reconhecido, ou a análise não trouxe dados suficientes para uma conclusão.';
+const INCONCLUSIVE_GUIDANCE = Object.freeze([
+  'Envie uma nova foto de uma única folha inteira, nítida, com luz natural e fundo simples.',
+  'Confira se a planta está entre as culturas reconhecidas. Outras espécies podem ficar sem conclusão.',
+  'Se houver alterações persistentes, registre outras folhas e a planta inteira e procure orientação agronômica.'
+]);
+const INCONCLUSIVE_COPY = Object.freeze({
+  'low-confidence': Object.freeze({
+    summary: 'A IA não diferenciou as classes com segurança suficiente nesta foto. Não foi possível informar se a folha tem aparência saudável ou apresenta sinais de doença.',
+    care: INCONCLUSIVE_GUIDANCE
+  }),
+  'model-compatibility': Object.freeze({
+    summary: 'A foto não ficou suficientemente semelhante às folhas conhecidas pelo modelo. O enquadramento, o fundo ou diferenças em relação às plantas e condições do treinamento podem explicar essa diferença. Nenhuma doença nem condição saudável foi atribuída a esta foto.',
+    care: Object.freeze([
+      'Ajuste o enquadramento para mostrar uma única folha inteira e centralizada, com pouco fundo ao redor.',
+      'Confira se a espécie aparece entre as 14 culturas atendidas. Para outra planta, conecte um modelo treinado para ela.',
+      'Se a folha já estiver bem enquadrada, experimente outra foto nítida com luz natural. Uma folha legível também pode ficar sem conclusão quando a foto ou a condição difere dos exemplos do modelo.'
+    ])
+  })
+});
+// Old releases wrote this neutral explanation before the shared copy helper.
+const LEGACY_OOD_SUMMARY = 'A imagem não foi suficientemente compatível com as folhas e classes conhecidas pela IA, ou a classificação ficou incerta. Nenhuma doença nem condição saudável foi atribuída a esta foto.';
+
+/** Neutral, reusable inference feedback. It does not assign a plant or disease. */
+export function describeInconclusiveReason(reason = 'explicit-inconclusive') {
+  const copyKey = reason === 'close-predictions' ? 'low-confidence' : reason;
+  const copy = Object.hasOwn(INCONCLUSIVE_COPY, copyKey) ? INCONCLUSIVE_COPY[copyKey] : null;
   return {
     status: 'inconclusive', title: 'Análise inconclusiva', shortLabel: 'Inconclusivo',
     crop: '', condition: '', tone: 'neutral', reason,
-    summary: `${detail} Não foi possível informar se a folha tem aparência saudável ou apresenta sinais de doença.`,
-    care: [
-      'Envie uma nova foto de uma única folha inteira, nítida, com luz natural e fundo simples.',
-      'Confira se a planta está entre as culturas reconhecidas. Outras espécies podem ficar sem conclusão.',
-      'Se houver alterações persistentes, registre outras folhas e a planta inteira e procure orientação agronômica.'
-    ]
+    summary: copy?.summary || 'A imagem está fora do conjunto reconhecido, ou a análise não trouxe dados suficientes para uma conclusão. Não foi possível informar se a folha tem aparência saudável ou apresenta sinais de doença.',
+    care: [...(copy?.care || INCONCLUSIVE_GUIDANCE)]
   };
+}
+function inconclusive(reason) { return describeInconclusiveReason(reason); }
+
+function recordedInconclusive(result) {
+  // Preserve specific explanations emitted by our neutral result pipeline.
+  // Never revive an old disease summary just because a result was rejected at
+  // display time, or accept a neutral title alongside stale measured scores.
+  if (result.title !== 'Análise inconclusiva' || result.topClass !== 'Análise inconclusiva'
+      || Object.hasOwn(result, 'confidence') || Object.hasOwn(result, 'predictions')
+      || typeof result.summary !== 'string') return null;
+  const summary = result.summary.trim();
+  const reason = summary === LEGACY_OOD_SUMMARY ? 'model-compatibility'
+    : Object.keys(INCONCLUSIVE_COPY).find(key => INCONCLUSIVE_COPY[key].summary === summary);
+  if (!reason) return null;
+  const assessment = describeInconclusiveReason(reason);
+  const care = Array.isArray(result.care) ? result.care
+    .filter(item => typeof item === 'string' && item.trim() && item.length <= 4000)
+    .slice(0, 6).map(item => item.trim()) : [];
+  return { ...assessment, summary, care: care.length ? care : assessment.care };
 }
 
 /**
@@ -96,7 +133,7 @@ export function describePlantHealth(result) {
     care: ['Use a opção de análise por IA com uma foto nítida para obter uma avaliação preliminar.']
   };
   if (result.severity === 'inconclusive' || result.status === 'inconclusive'
-    || result.topClass === 'Análise inconclusiva' || result.title === 'Análise inconclusiva') return inconclusive('explicit-inconclusive');
+    || result.topClass === 'Análise inconclusiva' || result.title === 'Análise inconclusiva') return recordedInconclusive(result) || inconclusive('explicit-inconclusive');
   if (!isProbability(result.confidence)) return inconclusive('missing-or-invalid-confidence');
   if (!knownClass(result.topClass)) return inconclusive('unknown-class');
   if (!Array.isArray(result.predictions) || result.predictions.length < 2 || result.predictions.length > 38) return inconclusive('missing-or-invalid-predictions');

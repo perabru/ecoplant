@@ -1,5 +1,5 @@
 /* Public app shell and pinned SDKs only. User records stay in the UID-scoped DB. */
-const VERSION = 'v12-ecoplant-functional';
+const VERSION = 'v13-ecoplant-framing';
 const PREFIX = 'ecoplant-';
 const SHELL_CACHE = `${PREFIX}shell-${VERSION}`;
 const SDK_CACHE = `${PREFIX}sdk-${VERSION}`;
@@ -9,7 +9,7 @@ const VERIFIED_AI_CACHE = 'ecoplant-ai-verified-v1';
 const BASE = new URL('./', self.location.href);
 const SHELL_FILES = [
   './', './index.html', './styles.css', './app.js', './firebase.js',
-  './local-db.js', './pwa.js', './triage.js', './model-config.js', './classifier.js', './plant-ai.js', './plant-health.js', './report.js', './theme.js', './theme.css', './experience.js', './experience.css', './manifest.webmanifest',
+  './local-db.js', './pwa.js', './triage.js', './model-config.js', './classifier.js', './plant-ai.js', './plant-health.js', './image-framing.js', './report.js', './theme.js', './theme.css', './experience.js', './experience.css', './manifest.webmanifest',
   './assets/ecoplant-icon-192.png', './assets/ecoplant-icon-512.png', './assets/ecoplant-maskable-512.png',
   './assets/ecoplant-apple-touch-180.png', './assets/favicon-32.png', './assets/favicon-64.png', './assets/favicon.ico', './assets/ecoplant-logo.png', './assets/garden.svg'
 ];

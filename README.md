@@ -9,10 +9,21 @@ PWA em português para registrar plantas, fotografar folhas e acompanhar sua evo
 
 1. Abra [Analisar planta](https://perabru.github.io/ecoplant/#scan).
 2. Toque em **Analisar uma planta sem conta** para usar neste aparelho, ou entre na sua conta.
-3. Envie uma foto nítida de uma folha e toque em **Analisar com IA e gerar relatório**.
-4. Leia a avaliação, use **Salvar no histórico** e **Imprimir / PDF** quando precisar.
+3. Envie uma foto nítida de uma folha. Se ela estiver pequena ou fora do centro, use **Ajustar enquadramento** e mantenha a folha inteira dentro da moldura.
+4. Confira o modelo escolhido e toque em **Analisar com IA e gerar relatório**.
+5. Leia a avaliação, use **Salvar no histórico** e **Imprimir / PDF** quando precisar.
 
 Na versão 1.1.0, a escolha do modo local é retomada ao recarregar e o endereço de análise é preservado. O carregamento da IA e do modelo próprio pode ser cancelado sem perder a foto. O aplicativo guarda uma cópia verificada dos arquivos públicos da IA quando o navegador permite; isso reduz novos downloads. A primeira preparação ainda requer internet, e a disponibilidade offline depende do cache e do armazenamento do navegador.
+
+## Correções da versão 1.1.1
+
+- A ficha da planta mantém o método de análise escolhido. Um Teachable Machine conectado não é substituído silenciosamente pela IA padrão.
+- Se um modelo importado deixou de estar disponível após recarregar, o aplicativo solicita reconexão. Não troca o modelo sem a escolha do usuário.
+- **Ajustar enquadramento** permite ampliar, arrastar ou posicionar a foto pelos controles. A moldura deixa uma margem para o recorte central do modelo. O recorte é local, reversível e não modifica relatórios salvos.
+- **Ajustar foto e tentar novamente** recupera a foto, as observações e o método de um relatório inconclusivo para uma nova análise.
+- O relatório preserva a explicação de baixa confiança ou de incompatibilidade com os exemplos do modelo. A lista de culturas atendidas aparece antes de iniciar a análise.
+
+A verificação com os pesos reais reproduziu um problema de enquadramento: as mesmas folhas de tomate e maçã, deslocadas para a borda de uma imagem horizontal, foram rejeitadas; recortes centralizados recuperaram as classes de referência sem mudar pesos ou limites de confiança. Esses testes de funcionamento não validam acurácia em campo. Fotos externas também mostraram rejeições e classificações incorretas, portanto os critérios não foram relaxados e o aplicativo não promete identificar todas as plantas ou doenças.
 
 ## Recursos
 
@@ -61,7 +72,7 @@ A opção **Relatório de observação — sem IA** também funciona sem marcar 
 
 ### Entender a saúde da folha
 
-O relatório coloca a conclusão antes dos gráficos. **Aparência saudável** significa semelhança com folhas saudáveis do conjunto do modelo, restrita à foto enviada. **Sinais de possível doença** apresenta a cultura e o nome da hipótese; **Sinais de possível praga** diferencia ácaro rajado de doença. **Análise inconclusiva** não exibe uma doença nem porcentagens de confiança e orienta a fotografar novamente. Texto e ícones acompanham as cores verde, vermelha e neutra.
+O relatório coloca a conclusão antes dos gráficos. **Aparência saudável** significa semelhança com folhas saudáveis do conjunto do modelo, restrita à foto enviada. **Sinais de possível doença** apresenta a cultura e o nome da hipótese; **Sinais de possível praga** diferencia ácaro rajado de doença. **Análise inconclusiva** não exibe uma doença nem porcentagens de confiança. Preserva o motivo da rejeição e oferece ajuste de enquadramento ou nova foto. Texto e ícones acompanham as cores verde, vermelha e neutra.
 
 `dist/plant-health.js` mantém uma interpretação única para análise, relatório, ficha e histórico. Só aceita classes conhecidas, escores numéricos consistentes e probabilidade da classe principal a partir de 0,75. A margem mínima de 0,15 é uma verificação defensiva redundante para probabilidades normalizadas nesse limiar. Os limites são uma política conservadora do aplicativo, não precisão, sensibilidade ou desempenho em campo validados. A verificação original de imagem fora do conjunto também continua ativa.
 
@@ -100,7 +111,7 @@ Câmera ao vivo e Service Worker exigem um contexto seguro HTTPS. A consulta off
 
 ## Verificação
 
-`npm run check` verifica a sintaxe dos scripts, os contratos das regras Firebase, o carregamento/classificação/cancelamento com mocks explícitos e a estabilidade dos relatórios de modelos importados. Essas verificações não substituem o simulador/emulador de regras nem confirmam uma publicação no Firebase.
+`npm run check` verifica a sintaxe dos scripts, os contratos das regras Firebase, o carregamento/classificação/cancelamento com mocks explícitos a estabilidade dos relatórios de modelos importados, a seleção do método de análise e os limites do recorte. Essas verificações não substituem o simulador/emulador de regras nem confirmam uma publicação no Firebase.
 
 Os testes estruturais cobrem relatórios com e sem planta cadastrada, registro sem sinais, resultado de IA inconclusivo, sanitização, botão de PDF e contratos do banco. A integração ONNX também é verificada com os pesos reais em WASM e imagens conhecidas do PlantVillage; esses testes funcionais não medem desempenho em campo. Login e isolamento em produção dependem dos provedores habilitados e das regras publicadas. A regra de `result.method` aceita `plant-ai`, `teachable-machine` e `guided`, sem mudar a exigência de autenticação e UID próprio.
 

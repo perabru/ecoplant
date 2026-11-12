@@ -197,6 +197,35 @@ const staleHTML = reportHTML({...diseasedRecord,result:staleDisease}, plant);
 assertInconclusive(staleDisease);
 assert.doesNotMatch(staleHTML, /Sarna antiga|A planta está doente|Tratar a sarna|Apple___Apple_scab|<div class="rp-donut"|role="meter"/);
 
+// A stored neutral explanation must survive rendering without revealing scores.
+const uncertainSummary = 'A IA não diferenciou as classes com segurança suficiente nesta foto. Não foi possível informar se a folha tem aparência saudável ou apresenta sinais de doença.';
+const uncertainPhotoRecord = { id:'uncertain-copy', photo:'data:image/png;base64,AA==', result:{
+  method:'plant-ai', title:'Análise inconclusiva', topClass:'Análise inconclusiva', severity:'observe',
+  summary:uncertainSummary, care:['Confira a folha inteira antes de tentar outra foto.']
+} };
+const uncertainCopyHTML = reportHTML(uncertainPhotoRecord, plant);
+assert.match(uncertainCopyHTML, /A IA não diferenciou as classes com segurança suficiente nesta foto/);
+assert.match(uncertainCopyHTML, /Confira a folha inteira antes de tentar outra foto/);
+assert.match(uncertainCopyHTML, /data-action="adjust-report-photo"/);
+assert.match(uncertainCopyHTML, /Ajustar foto e tentar novamente/);
+assert.match(uncertainCopyHTML, /href="#profile\?model=files"/);
+assert.match(uncertainCopyHTML, /Usar meu modelo treinado/);
+assert.match(uncertainCopyHTML, /Para tentar novamente/);
+assert.doesNotMatch(uncertainCopyHTML, /<div class="rp-donut"|role="meter"|<dt>Possível doença<\/dt>/);
+const noPhotoRecovery = structuredClone(uncertainPhotoRecord); delete noPhotoRecovery.photo;
+assert.doesNotMatch(reportHTML(noPhotoRecovery, {...plant,photo:'data:image/png;base64,AA=='}), /data-action="adjust-report-photo"/);
+const tmUncertain = {...uncertainPhotoRecord,result:{method:'teachable-machine',title:'Análise inconclusiva',severity:'observe',topClass:'Classe A',confidence:0.55,predictions:[{className:'Classe A',probability:0.55},{className:'Classe B',probability:0.45}]}};
+const tmRecoveryHTML = reportHTML(tmUncertain,plant);
+assert.match(tmRecoveryHTML, /data-action="adjust-report-photo"/);
+assert.match(tmRecoveryHTML, /O modelo próprio não diferenciou suas classes/);
+assert.doesNotMatch(tmRecoveryHTML, /Usar meu modelo treinado|14 culturas|<div class="rp-donut"|role="meter"/);
+assert.doesNotMatch(reportHTML(aiRecord,plant), /data-action="adjust-report-photo"/);
+const escapedNeutralCare = structuredClone(uncertainPhotoRecord);
+escapedNeutralCare.result.care=['Uma nova foto <img src=x onerror=alert(1)> deve ficar centralizada.'];
+const escapedNeutralHTML = reportHTML(escapedNeutralCare,plant);
+assert.doesNotMatch(escapedNeutralHTML, /<img src=x onerror/);
+assert.match(escapedNeutralHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+
 // Nullable records/plant references are safe even after a plant was removed.
 assert.doesNotThrow(() => reportHTML());
 assert.doesNotThrow(() => reportHTML(null, null, null, null));
