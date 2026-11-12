@@ -37,39 +37,119 @@ for(const hash of ['#scan','#scan?plant=local-plant','#plant/local-plant','#hist
  assert.notEqual(c.state.profile.displayName,'Should not leak');
 }
 console.log('PASS local deep links, draft restoration, Firebase isolation, stale load discarded');
+// Exercise the real routing/interpretation functions with explicit inference mocks.
+// These assertions verify source selection, never trained-model accuracy.
+const methodSource=source.slice(source.indexOf('function customModelURL('),source.indexOf('function activeModelSource('));
+const clickSource=source.slice(source.indexOf("document.addEventListener('click',async e=>{"),source.indexOf("document.addEventListener('submit',async e=>{"));
+const bundledURL='https://example.test/ecoplant/my_model/';
+const bundledLabels=['Antracnose','Desconhecidas','Ferrugem','Fumagina','Míldio','Oídio','Plantas_Saudaveis','Podridão_radicular','Vitiligo','Planta de plastico'];
+function modelContext(initial={}){
+ const c={state:{profile:{},model:null,scanMethod:'',scanModelURL:null,scanPhoto:'data:image/jpeg;base64,AA==',...initial},
+  MODEL_CONFIG:{bundledModelAvailable:true,bundledHealthyClass:'Plantas_Saudaveis',bundledNeutralClasses:['Desconhecidas','Planta de plastico'],bundledLabels},
+  BUNDLED_MODEL_URL:'./my_model/',IMPORTED_MODEL_URL:'local:ecoplant-model',
+  validateModelURL:url=>url==='./my_model/'?bundledURL:url,photoSafe:v=>v,findPlant:()=>null,SYMPTOMS:[],scanFailure:m=>new Error(m),uuid:()=> 'analysis-1',
+  Image:class {set src(value){queueMicrotask(()=>this.onload());}},console};
+ vm.createContext(c);vm.runInContext(methodSource+'\n'+scanSource,c);return c;
+}
+const scanData=method=>({get:k=>({plantId:'',notes:'Folha do aluno',method})[k],getAll:()=>[]});
 {
- const state={scanPhoto:'data:image/jpeg;base64,AA==',model:{source:'files',healthyClass:'Saudável'},profile:{healthyClass:'Outra classe'}};
+ const c=modelContext({model:{source:'files',healthyClass:'Saudável'},profile:{healthyClass:'Outra classe'}});
  const output={method:'teachable-machine',modelURL:'local:ecoplant-model',modelLabels:['Saudável','Mancha'],topClass:'Saudável',confidence:.96,predictions:[{className:'Saudável',probability:.96},{className:'Mancha',probability:.04}]};
- let resolvePrediction, started;
- const ready=new Promise(resolve=>{started=resolve;});
- const c={state,photoSafe:v=>v,findPlant:()=>null,SYMPTOMS:[],scanFailure:m=>new Error(m),activeModelURL:()=> 'local:ecoplant-model',uuid:()=> 'analysis-1',classifyPlant:async()=>{started();return new Promise(resolve=>{resolvePrediction=resolve;});},Image:class {set src(value){queueMicrotask(()=>this.onload());}},console};
- vm.createContext(c);vm.runInContext(scanSource,c);
- const data={get:k=>({plantId:'',notes:'Folha do aluno',method:'teachable-machine'})[k],getAll:()=>[]};
- const pending=c.generateScanReport(data,()=>{},new AbortController().signal);
- await ready;state.model.healthyClass='Mancha';resolvePrediction(output);
+ let resolvePrediction,started;const ready=new Promise(resolve=>{started=resolve;});
+ c.classifyPlant=async()=>{started();return new Promise(resolve=>{resolvePrediction=resolve;});};
+ const pending=c.generateScanReport(scanData('teachable-machine'),()=>{},new AbortController().signal);
+ await ready;c.state.model.healthyClass='Mancha';resolvePrediction(output);
  const record=await pending;
  assert.equal(record.result.title,'Classe saudável no modelo');assert.match(record.result.summary,/classe saudável selecionada/);assert.equal('healthyClass' in record.result,false);
- assert.equal(record.notes,'Folha do aluno');assert.equal(record.photo,state.scanPhoto);
+ assert.equal(record.notes,'Folha do aluno');assert.equal(record.photo,c.state.scanPhoto);
 }
 console.log('PASS TM healthy-class snapshot survives later configuration changes without new Firebase fields');
-// Exercise the actual card click handlers: a custom model must stay selected.
-const methodSource=source.slice(source.indexOf('function selectedScanMethod('),source.indexOf('function activeModelSource('));
-const clickSource=source.slice(source.indexOf("document.addEventListener('click',async e=>{"),source.indexOf("document.addEventListener('submit',async e=>{"));
-for(const preferred of ['teachable-machine','plant-ai','guided','']){
- const c={state:{scanMethod:preferred,scanPhoto:'',scanOriginalPhoto:''},activeModelURL:()=> 'local:ecoplant-model',photoSafe:v=>v,findPlant:()=>({id:'leaf',photo:'data:image/jpeg;base64,AA=='}),document:{addEventListener:(event,fn)=>{c.click=fn;}},go:hash=>{c.route=hash;},scanFailure:message=>new Error(message),console};
- vm.createContext(c);vm.runInContext(methodSource+'\n'+clickSource,c);
- for(const action of ['analyze-plant-photo','new-plant-analysis']){
-  const button={dataset:{action,id:'leaf'}};
-  await c.click({target:{closest:()=>button}});
-  assert.equal(c.state.scanMethod,preferred||'teachable-machine');
-  assert.equal(c.route,'#scan?plant=leaf');
-  assert.equal(c.state.scanOriginalPhoto,c.state.scanPhoto);
- }
- c.activeModelURL=()=>'';c.state.scanMethod='teachable-machine';
- assert.equal(c.selectedScanMethod(),'teachable-machine','A missing imported model requires reconnection, not a silent switch');
- c.state.scanMethod='';assert.equal(c.selectedScanMethod(),'plant-ai');
+for(const topClass of ['Plantas_Saudaveis','Desconhecidas','Planta de plastico','Ferrugem']){
+ const c=modelContext({profile:{modelURL:'https://teachablemachine.withgoogle.com/models/own/',healthyClass:'Ferrugem'}});
+ let seenURL;
+ c.classifyPlant=async(image,url)=>{seenURL=url;return {method:'teachable-machine',modelURL:bundledURL,modelLabels:[...bundledLabels],topClass,confidence:.96,predictions:[{className:topClass,probability:.96}]};};
+ const {result}=await c.generateScanReport(scanData('ecoplant'),()=>{},new AbortController().signal);
+ assert.equal(seenURL,'./my_model/');assert.equal(result.method,'teachable-machine');assert.equal(result.topClass,topClass);
+ assert.equal(result.title,topClass==='Plantas_Saudaveis'?'Classe saudável no modelo':['Desconhecidas','Planta de plastico'].includes(topClass)?'Classe fora da avaliação de saúde':'Classe identificada pelo modelo');
+ if(['Desconhecidas','Planta de plastico'].includes(topClass)){assert.match(result.summary,/não recebe avaliação de saúde/);assert.notEqual(result.title,'Análise inconclusiva');}
+ assert.equal('healthyClass' in result,false);assert.equal('neutralClasses' in result,false);
 }
-console.log('PASS plant-card actions preserve the selected model; missing local models never silently switch');
+{
+ const c=modelContext({model:{source:'files',healthyClass:'Plantas_Saudaveis'}});
+ c.classifyPlant=async()=>({method:'teachable-machine',modelURL:'local:ecoplant-model',modelLabels:bundledLabels,topClass:'Desconhecidas',confidence:.96});
+ assert.equal((await c.generateScanReport(scanData('teachable-machine'),()=>{},new AbortController().signal)).result.title,'Classe identificada pelo modelo','Bundled policy must not reinterpret a custom model.');
+ c.classifyPlant=async()=>({method:'teachable-machine',modelURL:bundledURL,modelLabels:bundledLabels,topClass:'Desconhecidas',confidence:.6,severity:'observe',title:'Análise inconclusiva'});
+ assert.equal((await c.generateScanReport(scanData('ecoplant'),()=>{},new AbortController().signal)).result.title,'Análise inconclusiva');
+}
+console.log('PASS bundled healthy/neutral policy is independent of profile, retains class/confidence, and respects low confidence');
+
+// Fresh sessions default to EcoPlant; an explicit choice remains a choice.
+for(const preferred of ['ecoplant','teachable-machine','plant-ai','guided','']){
+ const c=modelContext({scanMethod:preferred,model:{source:'files',healthyClass:'Saudável'}});
+ c.findPlant=()=>({id:'leaf',photo:'data:image/jpeg;base64,AA=='});
+ c.document={addEventListener:(event,fn)=>{c.click=fn;}};c.go=hash=>{c.route=hash;};
+ vm.runInContext(clickSource,c);
+ for(const action of ['analyze-plant-photo','new-plant-analysis']){
+  await c.click({target:{closest:()=>({dataset:{action,id:'leaf'}})}});
+  assert.equal(c.state.scanMethod,preferred||'ecoplant');assert.equal(c.route,'#scan?plant=leaf');assert.equal(c.state.scanOriginalPhoto,c.state.scanPhoto);
+ }
+ c.state.scanMethod='';c.state.model=null;c.state.profile={modelURL:'https://teachablemachine.withgoogle.com/models/own/'};
+ assert.equal(c.selectedScanMethod(),'ecoplant','Existing users get the new default without deleting their custom model.');
+ assert.equal(c.customModelURL(),c.state.profile.modelURL);
+ c.MODEL_CONFIG.bundledModelAvailable=false;assert.equal(c.selectedScanMethod(),'teachable-machine');
+ c.state.profile={};assert.equal(c.selectedScanMethod(),'plant-ai');
+}
+{
+ const c=modelContext({plants:[],scanSymptoms:[],scanNotes:'',scanOriginalPhoto:'',profile:{modelURL:'https://teachablemachine.withgoogle.com/models/own/'}});
+ Object.assign(c,{routeParams:()=>new URLSearchParams(),shell:html=>html,heading:()=>'',icon:()=>'',esc:value=>String(value??'')});
+ const viewSource=source.slice(source.indexOf('function customScanModelNote('),source.indexOf('function syncScanForm('));
+ vm.runInContext(viewSource,c);
+ let html=c.scanView();
+ assert.match(html, /<option value="ecoplant"[^>]*selected>Modelo EcoPlant — 10 classes/);
+ assert.match(html, /<option value="plant-ai"[^>]*>IA geral — 14 culturas/);
+ assert.match(html, /<option value="teachable-machine"[^>]*>Meu modelo do Teachable Machine/);
+ assert.match(html, /Analisar com o modelo EcoPlant/);
+ c.resumeScanRecord({photo:c.state.scanPhoto,result:{method:'teachable-machine',modelURL:'local:ecoplant-model'}});
+ html=c.scanView();assert.match(html, /<option value="teachable-machine"[^>]*selected>/);
+ assert.match(html, /Para repetir este relatório, selecione novamente os arquivos do modelo original/);
+}
+// The report action binds to the source used by that report, including a missing import.
+for(const [url,expectedMethod] of [['local:ecoplant-model','teachable-machine'],['https://teachablemachine.withgoogle.com/models/older/','teachable-machine'],[bundledURL,'ecoplant'],['','teachable-machine']]){
+ const original={id:'older',photo:'data:image/jpeg;base64,AA==',notes:'Anotações anteriores',symptoms:['spots'],result:{method:'teachable-machine',modelURL:url}};
+ const c=modelContext({profile:{modelURL:'https://teachablemachine.withgoogle.com/models/newer/'}});
+ c.document={addEventListener:(event,fn)=>{c.click=fn;}};c.go=hash=>{c.route=hash;};c.getCurrentReport=()=>original;
+ vm.runInContext(clickSource,c);
+ await c.click({target:{closest:()=>({dataset:{action:'adjust-report-photo'}})}});
+ assert.equal(c.state.scanMethod,expectedMethod);assert.equal(c.scanModelURL(),expectedMethod==='ecoplant'?'./my_model/':url==='local:ecoplant-model'?'':url);
+ assert.equal(c.state.scanNotes,original.notes);assert.notEqual(c.state.scanSymptoms,original.symptoms);assert.equal(c.state.scanOriginalPhoto,original.photo);
+ assert.equal(original.result.modelURL,url);assert.equal(c.route,'#scan');
+ if(url==='local:ecoplant-model'){
+  c.classifyPlant=async()=>{throw new Error('An old import must require explicit reconnection before inference');};
+  await assert.rejects(c.generateScanReport(scanData('teachable-machine'),()=>{},new AbortController().signal),/não está conectado/);
+ }
+ if(!url)await assert.rejects(c.generateScanReport(scanData('teachable-machine'),()=>{},new AbortController().signal),/não está conectado/);
+}
+{
+ const importedB={source:'files',metadata:{modelName:'Modelo B'},healthyClass:'Saudável'};
+ const c=modelContext({model:importedB});
+ const reportA={id:'import-a',photo:c.state.scanPhoto,notes:'Foto analisada pelo modelo A',result:{method:'teachable-machine',modelURL:'local:ecoplant-model',modelName:'Modelo A'}};
+ let predictions=0;c.classifyPlant=async()=>{predictions++;return {method:'teachable-machine'};};
+ c.resumeScanRecord(reportA);
+ assert.equal(c.state.scanFromRecord,true);assert.equal(c.scanModelURL(),'');
+ await assert.rejects(c.generateScanReport(scanData('teachable-machine'),()=>{},new AbortController().signal),/não está conectado/);
+ assert.equal(predictions,0,'Report A must never silently run already-loaded import B.');
+ assert.equal(c.state.model,importedB);assert.equal(c.state.scanNotes,reportA.notes);
+ assert.equal(c.state.scanPhoto,reportA.photo);
+}
+{
+ const old={id:'older-ai',photo:'data:image/jpeg;base64,AA==',result:{method:'plant-ai'}};
+ const c=modelContext();c.draftKey=()=> 'draft';c.sessionStorage={getItem:()=>JSON.stringify({version:1,record:old})};
+ const restoreSource=source.slice(source.indexOf('function restoreDraft('),source.indexOf('function scanFailure('));
+ vm.runInContext(restoreSource,c);c.restoreDraft('user');
+ assert.equal(c.state.draft.result.method,'plant-ai');assert.equal(c.selectedScanMethod(),'ecoplant','An old draft must not silently become the preference for a new photo.');
+ c.resumeScanRecord(c.state.draft);assert.equal(c.selectedScanMethod(),'plant-ai','An explicit retry still uses the old method.');
+}
+console.log('PASS new defaults, explicit choices, old draft preservation and original source on retry without model fallback');
 
 // Run the real loading module against a minimal DOM. No inference is simulated here.
 const nodes=new Map(),events=new Map();let timer=0;const timers=new Map();

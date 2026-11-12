@@ -43,17 +43,22 @@ async function configuration(directory, expected) {
   const published = await fs.readFile(path.join(directory, 'docs/model-config.js'), 'utf8');
   assert.equal(published, source, 'dist/ e docs/ devem anunciar a mesma disponibilidade.');
   const { MODEL_CONFIG } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
-  assert.deepEqual(MODEL_CONFIG, { bundledModelAvailable: expected });
+  assert.deepEqual(MODEL_CONFIG, expected
+    ? { bundledModelAvailable: true, bundledModelName: 'Modelo de publicação', bundledLabels: ['Saudável', 'Manchas'], bundledHealthyClass: 'Saudável', bundledNeutralClasses: [] }
+    : { bundledModelAvailable: false, bundledModelName: '', bundledLabels: [], bundledHealthyClass: '', bundledNeutralClasses: [] });
   assert.equal(Object.isFrozen(MODEL_CONFIG), true);
+  assert.equal(Object.isFrozen(MODEL_CONFIG.bundledLabels), true);
+  assert.equal(Object.isFrozen(MODEL_CONFIG.bundledNeutralClasses), true);
 }
 
 const topology = () => ({ modelTopology: {}, weightsManifest: [{ paths: ['part-1.bin', 'part-2.bin'], weights: [] }] });
-const metadata = () => ({ packageName: '@teachablemachine/image', labels: ['Saudável', 'Manchas'] });
+const metadata = () => ({ packageName: '@teachablemachine/image', modelName: 'Modelo de publicação', labels: ['Saudável', 'Manchas'] });
 
-async function addModel(directory, { model = topology(), labels = metadata(), weights = true } = {}) {
+async function addModel(directory, { model = topology(), labels = metadata(), weights = true, policy = { healthyClass: 'Saudável', neutralClasses: [] } } = {}) {
   const folder = path.join(directory, 'dist/my_model');
   if (model !== null) await fs.writeFile(path.join(folder, 'model.json'), typeof model === 'string' ? model : JSON.stringify(model));
   if (labels !== null) await fs.writeFile(path.join(folder, 'metadata.json'), typeof labels === 'string' ? labels : JSON.stringify(labels));
+  if (policy !== null) await fs.writeFile(path.join(folder, 'ecoplant-config.json'), typeof policy === 'string' ? policy : JSON.stringify(policy));
   if (weights) {
     // Dummy bytes exercise file presence, never inference or a deployable model.
     await fs.writeFile(path.join(folder, 'part-1.bin'), Buffer.from([0, 1]));
@@ -66,9 +71,19 @@ try {
   run(transition);
   await configuration(transition, false);
   await addModel(transition);
+  await fs.mkdir(path.join(transition, 'dist/my_model/training-images'));
+  await fs.writeFile(path.join(transition, 'dist/my_model/training-images/photo.jpg'), 'training fixture, never public');
+  await fs.writeFile(path.join(transition, 'dist/my_model/photo.jpg'), 'training fixture, never public');
+  await fs.writeFile(path.join(transition, 'dist/my_model/unreferenced.bin'), 'unused fixture, never public');
   run(transition);
   await configuration(transition, true);
   assert.deepEqual(await fs.readFile(path.join(transition, 'docs/my_model/part-2.bin')), Buffer.from([2, 3]));
+  for (const privateFile of ['training-images', 'photo.jpg', 'unreferenced.bin']) {
+    await assert.rejects(fs.stat(path.join(transition, 'docs/my_model', privateFile)), { code: 'ENOENT' });
+  }
+  const publicMarker = JSON.parse(await fs.readFile(path.join(transition, 'docs/.generated-by-ecoplant'), 'utf8'));
+  assert.deepEqual(publicMarker.files.filter(name => name.startsWith('my_model/')), ['my_model/ecoplant-config.json', 'my_model/metadata.json', 'my_model/model.json', 'my_model/part-1.bin', 'my_model/part-2.bin']);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(transition, 'docs/my_model/ecoplant-config.json'), 'utf8')), {healthyClass:'Saudável',neutralClasses:[]});
   for (const name of ['model.json', 'metadata.json', 'part-1.bin', 'part-2.bin']) await fs.unlink(path.join(transition, 'dist/my_model', name));
   run(transition);
   await configuration(transition, false);
@@ -80,6 +95,11 @@ try {
     ['missing-weights', { weights: false }, /peso dist\/my_model\/part-1\.bin/],
     ['malformed-model', { model: '{ invalid' }, /model\.json não contém JSON válido/],
     ['malformed-metadata', { labels: '{ invalid' }, /metadata\.json não contém JSON válido/],
+    ['missing-policy', { policy: null }, /falta dist\/my_model\/ecoplant-config\.json/],
+    ['invalid-healthy-policy', { policy: { healthyClass: 'Classe inexistente', neutralClasses: [] } }, /healthyClass e neutralClasses/],
+    ['invalid-neutral-policy', { policy: { healthyClass: 'Saudável', neutralClasses: ['Classe inexistente'] } }, /healthyClass e neutralClasses/],
+    ['overlapping-policy', { policy: { healthyClass: 'Saudável', neutralClasses: ['Saudável'] } }, /healthyClass e neutralClasses/],
+    ['duplicate-neutral-policy', { policy: { healthyClass: 'Saudável', neutralClasses: ['Manchas', 'Manchas'] } }, /healthyClass e neutralClasses/],
     ['missing-topology', { model: { weightsManifest: [{ paths: ['part-1.bin'] }] } }, /modelTopology e weightsManifest/],
     ['invalid-labels', { labels: { labels: ['Só uma classe'] } }, /classes distintas e não vazias/],
     ['unsafe-weight-path', { model: { modelTopology: {}, weightsManifest: [{ paths: ['../part-1.bin'] }] } }, /somente nomes de arquivos/],

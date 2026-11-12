@@ -51,6 +51,25 @@ for (const modelURL of ['local:ecoplant-model', hostedTM.result.modelURL]) {
   assert.match(reportHTML(snapshot, plant), /Classificação inconclusiva/);
 }
 
+// Confident negative classes retain the measured label without a health verdict.
+for (const label of ['Desconhecidas', 'Planta de plastico']) {
+  const neutral = structuredClone(record);
+  neutral.photo = 'data:image/jpeg;base64,AA==';
+  Object.assign(neutral.result, { modelURL: 'https://example.test/ecoplant/my_model/', modelLabels: [label, 'Plantas_Saudaveis'], topClass: label,
+    confidence: 0.96, predictions: [{className: label, probability: 0.96}], title: 'Classe fora da avaliação de saúde',
+    summary: `O modelo escolheu “${label}”. Essa classe não recebe avaliação de saúde.` });
+  const html = reportHTML(neutral, plant);
+  assert.match(html, new RegExp(`<h2>${label}</h2>`));
+  assert.match(html, /Classe fora da avaliação de saúde/);
+  assert.match(html, /rp-verdict-neutral/);
+  assert.match(html, /Essa classe não recebe avaliação de saúde/);
+  assert.match(html, /<div class="rp-donut"/);
+  assert.match(html, /data-action="adjust-report-photo"/);
+  assert.match(html, /Para tentar novamente/);
+  assert.doesNotMatch(html, /rp-verdict-healthy|rp-verdict-danger|Classe saudável no modelo|Classificação inconclusiva/);
+  assert.equal(html, reportHTML(neutral, plant, {healthyClass:label}), 'A changed profile cannot turn a recorded negative class into healthy.');
+}
+
 // An uploaded photo without supplied signs is a record, never a health verdict.
 const observation = evaluateSymptoms([]);
 assert.equal(observation.method, 'guided');

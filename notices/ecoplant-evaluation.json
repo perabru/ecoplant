@@ -1,0 +1,630 @@
+{
+  "appVersion": "1.2.0",
+  "purpose": "Internal held-out classification of the labels supplied by the EcoPlant project; not independent field or diagnostic validation.",
+  "sourceProjectSha256": "100e8812c447dc4ee3c110e892a7d5e000a81eabc37d8c0c7f7c2daf271c6cdf",
+  "trainingProjectSha256": "c25029fccc3e68fd1aaf4ba5da1cc92cd7cea66db9b68c35c6bb3d6f194e89c5",
+  "preparation": {
+    "totals": {
+      "source_images": 5155,
+      "source_unique_hashes": 4824,
+      "conflicting_hash_groups_excluded": 9,
+      "conflicting_entries_excluded": 18,
+      "within_class_duplicate_entries_removed": 322,
+      "unique_usable_images": 4815,
+      "train_images": 4088,
+      "holdout_images": 727,
+      "train_holdout_hash_overlap": 0
+    },
+    "split": {
+      "seed": 20261112,
+      "holdout_fraction": 0.15,
+      "per_class_rounding": "ceil",
+      "algorithm": "Within each class, sort unique non-conflicting SHA256 groups by SHA256(UTF8(str(seed)+NUL+class+NUL+image_sha256)); take the first ceil(n*0.15) groups as holdout.",
+      "grouping": "exact JPEG SHA-256",
+      "near_duplicates_evaluated": false
+    },
+    "counts": [
+      {
+        "class": "Antracnose",
+        "source_entries": 684,
+        "unique_after_conflict_removal": 623,
+        "train": 529,
+        "holdout": 94
+      },
+      {
+        "class": "Desconhecidas",
+        "source_entries": 457,
+        "unique_after_conflict_removal": 457,
+        "train": 388,
+        "holdout": 69
+      },
+      {
+        "class": "Ferrugem",
+        "source_entries": 546,
+        "unique_after_conflict_removal": 525,
+        "train": 446,
+        "holdout": 79
+      },
+      {
+        "class": "Fumagina",
+        "source_entries": 500,
+        "unique_after_conflict_removal": 500,
+        "train": 425,
+        "holdout": 75
+      },
+      {
+        "class": "Míldio",
+        "source_entries": 492,
+        "unique_after_conflict_removal": 474,
+        "train": 402,
+        "holdout": 72
+      },
+      {
+        "class": "Oídio",
+        "source_entries": 878,
+        "unique_after_conflict_removal": 871,
+        "train": 740,
+        "holdout": 131
+      },
+      {
+        "class": "Plantas_Saudaveis",
+        "source_entries": 601,
+        "unique_after_conflict_removal": 596,
+        "train": 506,
+        "holdout": 90
+      },
+      {
+        "class": "Podridão_radicular",
+        "source_entries": 379,
+        "unique_after_conflict_removal": 157,
+        "train": 133,
+        "holdout": 24
+      },
+      {
+        "class": "Vitiligo",
+        "source_entries": 220,
+        "unique_after_conflict_removal": 215,
+        "train": 182,
+        "holdout": 33
+      },
+      {
+        "class": "Planta de plastico",
+        "source_entries": 398,
+        "unique_after_conflict_removal": 397,
+        "train": 337,
+        "holdout": 60
+      }
+    ]
+  },
+  "training": {
+    "library": "@teachablemachine/image",
+    "libraryVersion": "0.8.5",
+    "tfjsVersion": "4.22.0",
+    "backbone": {
+      "version": 2,
+      "alpha": 0.35,
+      "trainingLayer": "out_relu",
+      "officialUrl": "https://storage.googleapis.com/teachable-machine-models/mobilenet_v2_weights_tf_dim_ordering_tf_kernels_0.35_224_no_top/model.json",
+      "files": [
+        {
+          "path": "model.json",
+          "bytes": 100507,
+          "sha256": "743ac7298e845e2c2ef2c361cb2dad84b8bfc67ccbef1fefc20146d529b17030"
+        },
+        {
+          "path": "group1-shard1of1.bin",
+          "bytes": 1640832,
+          "sha256": "d366835afb87a9a6915084f00635339c2c8e137760cd891ab234340194ca1913"
+        }
+      ]
+    },
+    "head": {
+      "denseUnits": 100,
+      "activation": "relu",
+      "outputActivation": "softmax",
+      "architectureSource": "official TM 0.8.5 API/test default"
+    },
+    "settings": {
+      "denseUnits": 100,
+      "epochs": 50,
+      "batchSize": 16,
+      "learningRate": 0.001
+    },
+    "shuffleSeed": "20261112",
+    "labels": [
+      "Antracnose",
+      "Desconhecidas",
+      "Ferrugem",
+      "Fumagina",
+      "Míldio",
+      "Oídio",
+      "Plantas_Saudaveis",
+      "Podridão_radicular",
+      "Vitiligo",
+      "Planta de plastico"
+    ],
+    "counts": [
+      {
+        "label": "Antracnose",
+        "trainPool": 529,
+        "externalHoldout": 94,
+        "internalValidation": 80,
+        "optimizerTraining": 449
+      },
+      {
+        "label": "Desconhecidas",
+        "trainPool": 388,
+        "externalHoldout": 69,
+        "internalValidation": 59,
+        "optimizerTraining": 329
+      },
+      {
+        "label": "Ferrugem",
+        "trainPool": 446,
+        "externalHoldout": 79,
+        "internalValidation": 67,
+        "optimizerTraining": 379
+      },
+      {
+        "label": "Fumagina",
+        "trainPool": 425,
+        "externalHoldout": 75,
+        "internalValidation": 64,
+        "optimizerTraining": 361
+      },
+      {
+        "label": "Míldio",
+        "trainPool": 402,
+        "externalHoldout": 72,
+        "internalValidation": 61,
+        "optimizerTraining": 341
+      },
+      {
+        "label": "Oídio",
+        "trainPool": 740,
+        "externalHoldout": 131,
+        "internalValidation": 111,
+        "optimizerTraining": 629
+      },
+      {
+        "label": "Plantas_Saudaveis",
+        "trainPool": 506,
+        "externalHoldout": 90,
+        "internalValidation": 76,
+        "optimizerTraining": 430
+      },
+      {
+        "label": "Podridão_radicular",
+        "trainPool": 133,
+        "externalHoldout": 24,
+        "internalValidation": 20,
+        "optimizerTraining": 113
+      },
+      {
+        "label": "Vitiligo",
+        "trainPool": 182,
+        "externalHoldout": 33,
+        "internalValidation": 28,
+        "optimizerTraining": 154
+      },
+      {
+        "label": "Planta de plastico",
+        "trainPool": 337,
+        "externalHoldout": 60,
+        "internalValidation": 51,
+        "optimizerTraining": 286
+      }
+    ],
+    "trainingImages": 4088,
+    "externalHoldoutImages": 727,
+    "externalHoldoutReadOrUsed": false,
+    "trainHoldoutExactHashOverlap": 0,
+    "preprocessing": {
+      "decoder": "jpeg-js 0.4.4",
+      "inputSize": [
+        224,
+        224,
+        3
+      ],
+      "resize": false,
+      "flip": false,
+      "tensorDtype": "float32",
+      "operation": "toFloat().div(tf.scalar(127)).sub(tf.scalar(1))",
+      "caveat": "JPEG decoding may differ slightly from a browser canvas; every source image is already 224x224."
+    },
+    "featureRuntime": {
+      "node": "v24.22.1",
+      "tfjs": "4.22.0",
+      "backend": "wasm",
+      "wasmThreads": 1,
+      "decoder": "jpeg-js 0.4.4"
+    },
+    "trainingRuntime": {
+      "node": "v24.22.1",
+      "tfjs": "4.22.0",
+      "backend": "cpu",
+      "wasmThreads": null,
+      "decoder": "jpeg-js 0.4.4"
+    },
+    "completedAt": "2026-11-12T21:12:50.912Z",
+    "totalSeconds": 627.025
+  },
+  "finalEpoch": {
+    "epoch": 50,
+    "elapsedSeconds": 627,
+    "val_loss": 0.6016443371772766,
+    "val_acc": 0.9092382788658142,
+    "loss": 7.283574814209715e-05,
+    "acc": 1
+  },
+  "artifacts": [
+    {
+      "path": "model.json",
+      "bytes": 91912,
+      "sha256": "d72cfe99207c60a77c00d089471e437e733f55259c3d08945562374e1476228b"
+    },
+    {
+      "path": "metadata.json",
+      "bytes": 471,
+      "sha256": "fcba0f9f87e484331d45af3e3965d0ab8262a54c8d8c1cf76888aaf04e101d0a"
+    },
+    {
+      "path": "weights.bin",
+      "bytes": 2157232,
+      "sha256": "c3afde7be05451e2388c1ed73874ba4f96ecbd2a2d060d01734f66c4354a9b20"
+    }
+  ],
+  "evaluation": {
+    "completedAt": "2026-11-12T21:13:13.150Z",
+    "runtime": {
+      "node": "v24.22.1",
+      "tfjs": "4.22.0",
+      "backend": "wasm",
+      "wasmThreads": 1,
+      "decoder": "jpeg-js 0.4.4"
+    },
+    "metrics": {
+      "total": 727,
+      "correct": 661,
+      "accuracy": 0.9092159559834938,
+      "macro_precision": 0.8809054454133985,
+      "macro_recall": 0.8886315868163276,
+      "macro_f1": 0.8831336660515072,
+      "weighted_f1": 0.9090713642934927,
+      "confidence_at_least_075": {
+        "threshold": 0.75,
+        "count": 690,
+        "coverage": 0.9491059147180193,
+        "correct": 642,
+        "incorrect": 48,
+        "accuracy": 0.9304347826086956,
+        "low_confidence_count": 37,
+        "predicted_neutral_class_count": 135
+      },
+      "accepted_plant_classes_at_075": {
+        "neutral_classes_excluded": [
+          "Desconhecidas",
+          "Planta de plastico"
+        ],
+        "count": 555,
+        "coverage": 0.7634112792297112,
+        "correct": 516,
+        "accuracy": 0.9297297297297298,
+        "nonhealthy_label_predicted_healthy": 2,
+        "neutral_label_predicted_plant_class": 0
+      },
+      "per_class": [
+        {
+          "class": "Antracnose",
+          "support": 94,
+          "predicted": 90,
+          "correct": 83,
+          "precision": 0.9222222222222223,
+          "recall": 0.8829787234042553,
+          "f1": 0.9021739130434783,
+          "at_least_075": {
+            "count": 90,
+            "coverage": 0.9574468085106383,
+            "correct": 81,
+            "accuracy": 0.9
+          }
+        },
+        {
+          "class": "Desconhecidas",
+          "support": 69,
+          "predicted": 72,
+          "correct": 69,
+          "precision": 0.9583333333333334,
+          "recall": 1,
+          "f1": 0.9787234042553191,
+          "at_least_075": {
+            "count": 67,
+            "coverage": 0.9710144927536232,
+            "correct": 67,
+            "accuracy": 1
+          }
+        },
+        {
+          "class": "Ferrugem",
+          "support": 79,
+          "predicted": 77,
+          "correct": 69,
+          "precision": 0.8961038961038961,
+          "recall": 0.8734177215189873,
+          "f1": 0.8846153846153846,
+          "at_least_075": {
+            "count": 75,
+            "coverage": 0.9493670886075949,
+            "correct": 67,
+            "accuracy": 0.8933333333333333
+          }
+        },
+        {
+          "class": "Fumagina",
+          "support": 75,
+          "predicted": 75,
+          "correct": 75,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "at_least_075": {
+            "count": 75,
+            "coverage": 1,
+            "correct": 75,
+            "accuracy": 1
+          }
+        },
+        {
+          "class": "Míldio",
+          "support": 72,
+          "predicted": 79,
+          "correct": 67,
+          "precision": 0.8481012658227848,
+          "recall": 0.9305555555555556,
+          "f1": 0.8874172185430463,
+          "at_least_075": {
+            "count": 71,
+            "coverage": 0.9861111111111112,
+            "correct": 66,
+            "accuracy": 0.9295774647887324
+          }
+        },
+        {
+          "class": "Oídio",
+          "support": 131,
+          "predicted": 128,
+          "correct": 120,
+          "precision": 0.9375,
+          "recall": 0.916030534351145,
+          "f1": 0.9266409266409266,
+          "at_least_075": {
+            "count": 123,
+            "coverage": 0.9389312977099237,
+            "correct": 115,
+            "accuracy": 0.9349593495934959
+          }
+        },
+        {
+          "class": "Plantas_Saudaveis",
+          "support": 90,
+          "predicted": 81,
+          "correct": 78,
+          "precision": 0.9629629629629629,
+          "recall": 0.8666666666666667,
+          "f1": 0.912280701754386,
+          "at_least_075": {
+            "count": 83,
+            "coverage": 0.9222222222222223,
+            "correct": 76,
+            "accuracy": 0.9156626506024096
+          }
+        },
+        {
+          "class": "Podridão_radicular",
+          "support": 24,
+          "predicted": 28,
+          "correct": 18,
+          "precision": 0.6428571428571429,
+          "recall": 0.75,
+          "f1": 0.6923076923076924,
+          "at_least_075": {
+            "count": 20,
+            "coverage": 0.8333333333333334,
+            "correct": 16,
+            "accuracy": 0.8
+          }
+        },
+        {
+          "class": "Vitiligo",
+          "support": 33,
+          "predicted": 29,
+          "correct": 22,
+          "precision": 0.7586206896551724,
+          "recall": 0.6666666666666666,
+          "f1": 0.7096774193548386,
+          "at_least_075": {
+            "count": 27,
+            "coverage": 0.8181818181818182,
+            "correct": 20,
+            "accuracy": 0.7407407407407407
+          }
+        },
+        {
+          "class": "Planta de plastico",
+          "support": 60,
+          "predicted": 68,
+          "correct": 60,
+          "precision": 0.8823529411764706,
+          "recall": 1,
+          "f1": 0.9375,
+          "at_least_075": {
+            "count": 59,
+            "coverage": 0.9833333333333333,
+            "correct": 59,
+            "accuracy": 1
+          }
+        }
+      ],
+      "confusion_matrix": {
+        "labels": [
+          "Antracnose",
+          "Desconhecidas",
+          "Ferrugem",
+          "Fumagina",
+          "Míldio",
+          "Oídio",
+          "Plantas_Saudaveis",
+          "Podridão_radicular",
+          "Vitiligo",
+          "Planta de plastico"
+        ],
+        "rows": "Expected label",
+        "columns": "Predicted label",
+        "counts": [
+          [
+            83,
+            0,
+            5,
+            0,
+            5,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            69,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            3,
+            1,
+            69,
+            0,
+            2,
+            1,
+            0,
+            2,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            75,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            0,
+            67,
+            2,
+            1,
+            1,
+            0,
+            0
+          ],
+          [
+            2,
+            0,
+            1,
+            0,
+            3,
+            120,
+            1,
+            3,
+            1,
+            0
+          ],
+          [
+            0,
+            1,
+            1,
+            0,
+            1,
+            0,
+            78,
+            3,
+            3,
+            3
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            1,
+            1,
+            0,
+            18,
+            2,
+            1
+          ],
+          [
+            1,
+            1,
+            0,
+            0,
+            0,
+            4,
+            1,
+            0,
+            22,
+            4
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            60
+          ]
+        ]
+      }
+    },
+    "preprocessing": {
+      "decoder": "jpeg-js 0.4.4",
+      "input": "Already 224x224 JPEGs; no resizing, crop, flip, or augmentation.",
+      "normalization": "tf.int32 RGB NHWC -> toFloat -> div(tf.scalar(127)) -> sub(tf.scalar(1)), matching @teachablemachine/image 0.8.5.",
+      "scores": "Raw exported model softmax outputs. No second softmax or score adjustment.",
+      "browser_equivalence_limit": "JPEG decoding/color rounding can differ from browser canvas; bit-for-bit browser equivalence has not been claimed."
+    },
+    "execution": {
+      "batch_size": 8,
+      "elapsed_ms": 16660.8836,
+      "inference_ms": 14138.460748000007,
+      "model_tensors_before": 263,
+      "model_tensors_after": 263,
+      "tensors_after_disposal": 3
+    },
+    "caveats": [
+      "No exact JPEG hash occurs in both the training and evaluation split.",
+      "Near-duplicate or related photographs were not assessed.",
+      "Reference labels are supplied by the project and have not been independently confirmed.",
+      "Threshold 0.75 is the existing application display policy, not an agronomically calibrated confidence level.",
+      "Metrics were not used to select training parameters or fit model weights."
+    ]
+  }
+}

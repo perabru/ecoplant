@@ -34,6 +34,10 @@ async function collect(directory, prefix = '') {
   for (const entry of (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
     if (excluded(entry.name)) continue;
     if (entry.isSymbolicLink()) throw new Error(`Links simbólicos não são copiados: ${prefix}${entry.name}`);
+    // A Teachable Machine project can contain thousands of training photos.
+    // Publish only the direct inference files; never traverse its dataset.
+    if (prefix.startsWith('my_model/') && (prefix !== 'my_model/' || entry.isDirectory()
+        || !['model.json', 'metadata.json', 'ecoplant-config.json'].includes(entry.name) && !entry.name.endsWith('.bin'))) continue;
     const relative = assertRelative(prefix + entry.name);
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) {
@@ -45,14 +49,17 @@ async function collect(directory, prefix = '') {
   return files;
 }
 
-function bundledModelAvailable(files) {
+function bundledModelConfiguration(files) {
   const modelPath = 'my_model/model.json';
   const metadataPath = 'my_model/metadata.json';
-  if (!files.has(modelPath) && !files.has(metadataPath)) return false;
+  const policyPath = 'my_model/ecoplant-config.json';
+  const empty = { bundledModelAvailable: false, bundledModelName: '', bundledLabels: [], bundledHealthyClass: '', bundledNeutralClasses: [] };
+  if (!files.has(modelPath) && !files.has(metadataPath)) return { configuration: empty, inferenceFiles: new Set() };
   for (const relative of [modelPath, metadataPath]) {
     if (!files.has(relative)) throw new Error(`Modelo empacotado incompleto: falta dist/${relative}. Adicione a exportação completa ou remova os arquivos do modelo.`);
   }
   const readModelJSON = relative => {
+    if (files.get(relative)?.byteLength > 8 * 1024 * 1024) throw new Error(`Modelo empacotado inválido: dist/${relative} excede 8 MB.`);
     try { return JSON.parse(files.get(relative).toString('utf8')); }
     catch { throw new Error(`Modelo empacotado inválido: dist/${relative} não contém JSON válido.`); }
   };
@@ -70,17 +77,37 @@ function bundledModelAvailable(files) {
       || !Array.isArray(model.weightsManifest) || !model.weightsManifest.length) {
     throw new Error('Modelo empacotado inválido: dist/my_model/model.json precisa conter modelTopology e weightsManifest.');
   }
+  const inferenceFiles = new Set([modelPath, metadataPath]), weightFiles = new Set();
+  let weightBytes = 0;
   for (const group of model.weightsManifest) {
-    if (!group || !Array.isArray(group.paths) || !group.paths.length || group.paths.some(filename =>
-      typeof filename !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(filename) || filename === '.' || filename === '..')) {
+    if (!group || !Array.isArray(group.paths) || !group.paths.length || !Array.isArray(group.weights) || group.paths.some(filename =>
+      typeof filename !== 'string' || !/^[A-Za-z0-9_.-]+\.bin$/.test(filename))) {
       throw new Error('Modelo empacotado inválido: weightsManifest.paths aceita somente nomes de arquivos, sem pastas ou URLs.');
     }
     for (const filename of group.paths) {
       const relative = `my_model/${filename}`;
       if (!files.has(relative)) throw new Error(`Modelo empacotado incompleto: o peso dist/${relative}, declarado em model.json, está ausente ou não pode ser publicado.`);
+      if (weightFiles.has(filename)) throw new Error('Modelo empacotado inválido: o manifesto repete um arquivo de pesos.');
+      weightFiles.add(filename);inferenceFiles.add(relative);weightBytes += files.get(relative).byteLength;
+      if (!files.get(relative).byteLength || weightFiles.size > 32 || weightBytes > 128 * 1024 * 1024) {
+        throw new Error('Modelo empacotado inválido: use até 32 arquivos de pesos não vazios, com no máximo 128 MB no total.');
+      }
     }
   }
-  return true;
+  if (!files.has(policyPath)) throw new Error('Modelo empacotado incompleto: falta dist/my_model/ecoplant-config.json com a interpretação revisada das classes.');
+  const policy = readModelJSON(policyPath);
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy)
+      || typeof policy.healthyClass !== 'string' || !metadata.labels.includes(policy.healthyClass)
+      || !Array.isArray(policy.neutralClasses) || policy.neutralClasses.some(label => typeof label !== 'string' || !metadata.labels.includes(label))
+      || new Set(policy.neutralClasses).size !== policy.neutralClasses.length || policy.neutralClasses.includes(policy.healthyClass)) {
+    throw new Error('Modelo empacotado inválido: healthyClass e neutralClasses precisam corresponder a classes distintas de metadata.labels, sem sobreposição.');
+  }
+  inferenceFiles.add(policyPath);
+  return {
+    configuration: { bundledModelAvailable: true, bundledModelName: typeof metadata.modelName === 'string' ? metadata.modelName.slice(0, 400) : 'Modelo EcoPlant',
+      bundledLabels: [...metadata.labels], bundledHealthyClass: policy.healthyClass, bundledNeutralClasses: [...policy.neutralClasses] },
+    inferenceFiles
+  };
 }
 
 async function ensureSafeParents(relative) {
@@ -122,8 +149,10 @@ async function main() {
   files.set('assets/database.rules.json', rules);
   files.set('.nojekyll', Buffer.from(''));
 
-  const modelAvailable = bundledModelAvailable(files);
-  const modelConfig = Buffer.from(`${modelConfigHeader}export const MODEL_CONFIG = Object.freeze({bundledModelAvailable:${modelAvailable}});\n`);
+  const { configuration, inferenceFiles } = bundledModelConfiguration(files);
+  for (const relative of files.keys()) if (relative.startsWith('my_model/') && !inferenceFiles.has(relative)) files.delete(relative);
+  const modelAvailable = configuration.bundledModelAvailable;
+  const modelConfig = Buffer.from(`${modelConfigHeader}const configuration = ${JSON.stringify(configuration)};\nObject.freeze(configuration.bundledLabels);\nObject.freeze(configuration.bundledNeutralClasses);\nexport const MODEL_CONFIG = Object.freeze(configuration);\n`);
   const sourceConfigPath = path.join(source, modelConfigName);
   const sourceConfigStat = await statIfPresent(sourceConfigPath);
   if (sourceConfigStat && (!sourceConfigStat.isFile() || sourceConfigStat.isSymbolicLink()

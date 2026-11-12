@@ -1,0 +1,22 @@
+{
+  "tfjsVersion": "4.22.0",
+  "labels": [
+    "Antracnose",
+    "Desconhecidas",
+    "Ferrugem",
+    "Fumagina",
+    "Míldio",
+    "Oídio",
+    "Plantas_Saudaveis",
+    "Podridão_radicular",
+    "Vitiligo",
+    "Planta de plastico"
+  ],
+  "imageSize": 224,
+  "grayscale": false,
+  "modelName": "Modelo EcoPlant — 10 classes",
+  "packageName": "@teachablemachine/image",
+  "packageVersion": "0.8.5",
+  "timeStamp": "2026-11-12T21:12:50.885Z",
+  "userMetadata": {}
+}

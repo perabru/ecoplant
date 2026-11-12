@@ -1,29 +1,29 @@
-MODELO DO ECOPLANT
+MODELO ECOPLANT — 10 CLASSES
 
-Esta pasta está preparada para um modelo de imagem do Teachable Machine.
-Nenhum modelo real ou peso treinado acompanha o repositório.
+Esta pasta contém o modelo de imagem treinado a partir do projeto EcoPlant.
+Arquivos usados na inferência:
+- model.json: topologia e manifesto dos pesos
+- metadata.json: nomes e ordem exatos das classes
+- weights.bin ou shards .bin declarados em model.json
+- ecoplant-config.json: classe saudável e classes neutras do EcoPlant
 
-Exporte o projeto em TensorFlow.js e coloque aqui:
-- model.json
-- metadata.json
-- weights.bin, ou o nome .bin declarado no manifesto de model.json
+As imagens e o projeto .tm não devem ser colocados nesta pasta.
+A publicação copia apenas os artefatos de inferência validados.
+Consulte notices/ECOPLANT_MODEL.md no repositório para treinamento e avaliação.
 
-A importação pelo seletor de arquivos aceita um único arquivo .bin.
-Para a pasta publicada, inclua todos os arquivos de pesos referenciados
-pelo manifesto e preserve seus nomes. O HTML de exemplo NÃO contém os pesos.
-
-dist/ é a fonte principal. Depois de adicionar os arquivos, execute:
+A fonte principal é dist/. Para gerar a versão publicada:
 npm run prepare:pages
 
-O comando copia esta pasta para docs/my_model/. No site, o caminho é
-./my_model/. Arquivos empacotados serão públicos com o aplicativo.
+O modelo fica disponível em ./my_model/ e é selecionado inicialmente para
+uma análise nova. O primeiro uso precisa de conexão para baixar o modelo
+e as bibliotecas. A classificação acontece no navegador.
 
-Alternativas em Perfil > Teachable Machine:
-- Link hospedado: informe a URL pública do modelo.
-- Arquivos do modelo: selecione os três arquivos juntos. A seleção vale
-  somente para a sessão/aba e deve ser repetida ao recarregar a página.
-  Esses arquivos selecionados no navegador não são enviados ao Firebase.
+Modelos pessoais continuam disponíveis em Perfil > Teachable Machine:
+- Link hospedado: URL pública oficial do modelo.
+- Arquivos: model.json, metadata.json e todos os arquivos .bin do manifesto,
+  com até 32 shards e 128 MB de pesos. A seleção vale apenas para a aba e
+  precisa ser repetida depois de recarregar. Esses arquivos não vão ao Firebase.
 
-Os dados e relatórios mantêm o fluxo de salvamento atual do aplicativo.
-O reconhecimento ainda precisa ser testado com um modelo real.
-Para concluir, forneça o ZIP exportado em TensorFlow.js ou a URL do modelo.
+A classe saudável do modelo incorporado é Plantas_Saudaveis.
+Desconhecidas e Planta de plastico são classes neutras.
+A confiança do modelo não mede saúde, gravidade ou certeza de diagnóstico.

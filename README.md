@@ -10,10 +10,28 @@ PWA em português para registrar plantas, fotografar folhas e acompanhar sua evo
 1. Abra [Analisar planta](https://perabru.github.io/ecoplant/#scan).
 2. Toque em **Analisar uma planta sem conta** para usar neste aparelho, ou entre na sua conta.
 3. Envie uma foto nítida de uma folha. Se ela estiver pequena ou fora do centro, use **Ajustar enquadramento** e mantenha a folha inteira dentro da moldura.
-4. Confira o modelo escolhido e toque em **Analisar com IA e gerar relatório**.
+4. Confira **Modelo EcoPlant — 10 classes** e toque em **Analisar com o modelo EcoPlant**.
 5. Leia a avaliação, use **Salvar no histórico** e **Imprimir / PDF** quando precisar.
 
 Na versão 1.1.0, a escolha do modo local é retomada ao recarregar e o endereço de análise é preservado. O carregamento da IA e do modelo próprio pode ser cancelado sem perder a foto. O aplicativo guarda uma cópia verificada dos arquivos públicos da IA quando o navegador permite; isso reduz novos downloads. A primeira preparação ainda requer internet, e a disponibilidade offline depende do cache e do armazenamento do navegador.
+
+## Modelo EcoPlant incorporado — versão 1.2.0
+
+**Modelo EcoPlant — 10 classes** é a opção inicial para uma análise nova. O modelo foi treinado com o projeto de imagens fornecido para o EcoPlant e os arquivos de inferência estão no próprio site. Não é necessário importar o `.tm`, cadastrar uma chave de API ou conectar um link de modelo para começar.
+
+As classes preservam os nomes do projeto: `Antracnose`, `Desconhecidas`, `Ferrugem`, `Fumagina`, `Míldio`, `Oídio`, `Plantas_Saudaveis`, `Podridão_radicular`, `Vitiligo` e `Planta de plastico`. A ordem exata usada pelos pesos consta em `metadata.json`.
+
+- `Plantas_Saudaveis` é a classe saudável configurada para este modelo.
+- `Desconhecidas` e `Planta de plastico` apresentam um resultado neutro com o rótulo encontrado e sua pontuação, sem afirmar doença ou saúde.
+- Os demais rótulos são apresentados como classes do modelo. A classificação de imagem não confirma diagnóstico nem determina tratamento.
+- Uma probabilidade abaixo de 0,75 mantém **Análise inconclusiva**, com motivo e opção de ajustar a foto. O limiar não foi reduzido para fabricar conclusões.
+- O seletor mantém disponíveis **IA geral — 14 culturas**, **Meu modelo Teachable Machine** e o relatório de observação. Uma reanálise preserva a origem do modelo anterior.
+
+O arquivo `.tm` continha 5.155 imagens, sem pesos treinados. A preparação retirou 322 cópias exatas dentro das classes e todas as 18 entradas dos nove grupos com rótulos contraditórios. Das 4.815 imagens únicas restantes, 4.088 foram reservadas para treinamento e 727 para avaliação externa ao treino. O conjunto de avaliação não compartilha hashes de imagens com o treino; semelhanças visuais entre fotos não foram investigadas. Essa avaliação interna não representa acurácia em campo.
+
+O treinamento usa a biblioteca oficial do Teachable Machine com MobileNet V2, alpha 0,35, entrada RGB de 224 × 224, 50 épocas, lote 16 e taxa de aprendizagem 0,001. A primeira análise exige internet para carregar os arquivos de inferência e as bibliotecas. As fotografias são processadas no navegador; salvar um relatório mantém a opção habitual de armazenamento local ou conta Firebase.
+
+Os detalhes e os resultados medidos estão em [Modelo EcoPlant](notices/ECOPLANT_MODEL.md). As fotografias de treinamento e de avaliação não acompanham a publicação.
 
 ## Correções da versão 1.1.1
 
@@ -31,7 +49,7 @@ A verificação com os pesos reais reproduziu um problema de enquadramento: as m
 - Firebase Realtime Database com registros separados por UID e regras de validação.
 - Cadastro, edição e exclusão de plantas, fotos reduzidas no navegador e histórico.
 - Câmera ao vivo com alternância frontal/traseira e alternativa de câmera nativa/galeria.
-- IA de imagem pronta para uso no navegador, sem chave de API, com modelo aberto DINOv2/PlantVillage e verificação de imagens fora do conjunto.
+- Modelo EcoPlant de 10 classes incorporado e pronto para análise no navegador, sem chave de API; IA geral DINOv2/PlantVillage disponível como alternativa.
 - Conclusão em destaque: aparência saudável, sinais de possível doença, sinais de possível praga ou análise inconclusiva; o nome da hipótese aparece em português.
 - Resultado da última foto na ficha da planta e filtros de resultado no histórico, sempre com data e sem transformar a confiança do modelo em porcentagem de saúde.
 - Suporte a modelos de imagem do Teachable Machine por link hospedado, arquivos selecionados no navegador ou pasta `./my_model/` do aplicativo.
@@ -66,11 +84,11 @@ Autorize `perabru.github.io` em Authentication → Configurações → Domínios
 
 ## Gerar o relatório e usar a IA
 
-Abra **Analisar planta**, envie uma foto e toque em **Analisar com IA e gerar relatório**. Vincular a foto a uma planta cadastrada é opcional. O relatório aparece no aplicativo; use **Salvar no histórico** para guardá-lo e **Imprimir / PDF** para exportar. Na ficha de uma planta, **Gerar relatório com esta foto** usa a imagem cadastrada; **Analisar uma nova foto** limpa o contexto anterior.
+Abra **Analisar planta**, envie uma foto e toque em **Analisar com o modelo EcoPlant**. Para usar outro treinamento, altere o seletor antes de analisar. Vincular a foto a uma planta cadastrada é opcional. O relatório aparece no aplicativo; use **Salvar no histórico** para guardá-lo e **Imprimir / PDF** para exportar. Na ficha de uma planta, **Gerar relatório com esta foto** usa a imagem cadastrada; **Analisar uma nova foto** limpa o contexto anterior.
 
 A opção **Relatório de observação — sem IA** também funciona sem marcar sinais: nesse caso, gera um registro fotográfico neutro, sem hipótese de doença ou afirmação de saúde. Falhas na IA nunca acionam essa opção silenciosamente.
 
-### Entender a saúde da folha
+### Entender a saúde da folha na IA geral
 
 O relatório coloca a conclusão antes dos gráficos. **Aparência saudável** significa semelhança com folhas saudáveis do conjunto do modelo, restrita à foto enviada. **Sinais de possível doença** apresenta a cultura e o nome da hipótese; **Sinais de possível praga** diferencia ácaro rajado de doença. **Análise inconclusiva** não exibe uma doença nem porcentagens de confiança. Preserva o motivo da rejeição e oferece ajuste de enquadramento ou nova foto. Texto e ícones acompanham as cores verde, vermelha e neutra.
 
@@ -78,7 +96,7 @@ O relatório coloca a conclusão antes dos gráficos. **Aparência saudável** s
 
 Relatórios antigos são apresentados segundo essa política atual. O JSON exportado conserva o registro original em `report` e inclui a interpretação atual em `assessment`, com a versão da política. Nenhum campo adicional é gravado no Firebase. As culturas mirtilo, framboesa e soja têm somente classes saudáveis no treinamento; laranja e abóbora não têm classe saudável. O relatório informa essas limitações quando aplicáveis.
 
-A IA de imagem usa o modelo aberto [rodynaemad/plant-disease-dinov2-small](https://huggingface.co/rodynaemad/plant-disease-dinov2-small), de Rodayna Emad Mohamed, treinado no [PlantVillage](https://huggingface.co/datasets/mohanty/PlantVillage). A exportação ONNX int8 tem cerca de 24 MB e é executada por ONNX Runtime Web 1.30.0 em WebAssembly. A primeira utilização exige internet para baixar o modelo e o mecanismo de processamento; nenhuma chave ou treinamento próprio é necessário. A foto é processada no navegador. A opção de salvar mantém o armazenamento habitual do aplicativo: conta Firebase ou modo local.
+A opção **IA geral — 14 culturas** usa o modelo aberto [rodynaemad/plant-disease-dinov2-small](https://huggingface.co/rodynaemad/plant-disease-dinov2-small), de Rodayna Emad Mohamed, treinado no [PlantVillage](https://huggingface.co/datasets/mohanty/PlantVillage). A exportação ONNX int8 tem cerca de 24 MB e é executada por ONNX Runtime Web 1.30.0 em WebAssembly. A primeira utilização exige internet para baixar o modelo e o mecanismo de processamento; nenhuma chave ou treinamento próprio é necessário. A foto é processada no navegador. A opção de salvar mantém o armazenamento habitual do aplicativo: conta Firebase ou modo local.
 
 **Limites:** são 38 classes de 14 culturas, aprendidas principalmente em imagens de folhas isoladas. Não é um classificador universal de plantas nem confirmação de doença. O verificador de similaridade com o treinamento pode produzir **Análise inconclusiva** para imagens fora desse conjunto; nesses casos, o relatório não apresenta uma doença nem uma porcentagem de confiança. Esse filtro não garante rejeitar toda imagem inadequada. Os valores do conjunto de teste publicados pelo autor não equivalem a desempenho em fotos de campo.
 
@@ -92,9 +110,9 @@ Treine um projeto de **imagem**, com pelo menos duas classes, e reserve imagens 
 - **Arquivos do modelo:** use a exportação para download e, em **Perfil → Teachable Machine → Arquivos do modelo**, selecione juntos `model.json`, `metadata.json` e todos os arquivos `.bin` declarados no manifesto de `model.json`. São aceitos até 32 arquivos de pesos, somando no máximo 128 MB, com os nomes originais. A seleção vale apenas para a sessão/aba e deve ser repetida após recarregar a página. Os arquivos selecionados não são enviados ao Firebase.
 - **Modelo empacotado:** coloque os mesmos três arquivos em `dist/my_model/`. A fonte principal é `dist/`; execute `npm run prepare:pages` para copiá-los para `docs/my_model/`. No site, o modelo fica disponível pelo caminho relativo `./my_model/`.
 
-Em qualquer origem de modelo, opcionalmente informe o nome exato da classe saudável; o aplicativo confere se ela existe no modelo. A interpretação escolhida é preservada no título e no resumo de cada resultado, sem depender das configurações futuras do perfil e sem mudar o esquema do Firebase. Relatórios antigos sem essa informação continuam mostrando a classe original, sem inferir retrospectivamente a condição saudável. Previsões do Teachable Machine abaixo de 0,75 ficam inconclusivas: esse limite é uma política do aplicativo, não acurácia comprovada. O HTML de exemplo fornecido pelo Teachable Machine **não contém os pesos treinados** e não substitui os arquivos exportados.
+Para um modelo pessoal conectado, opcionalmente informe o nome exato da classe saudável; o aplicativo confere se ela existe no modelo. A interpretação escolhida é preservada no título e no resumo de cada resultado, sem depender das configurações futuras do perfil e sem mudar o esquema do Firebase. Relatórios antigos sem essa informação continuam mostrando a classe original, sem inferir retrospectivamente a condição saudável. Previsões do Teachable Machine abaixo de 0,75 ficam inconclusivas: esse limite é uma política do aplicativo, não acurácia comprovada. O HTML de exemplo fornecido pelo Teachable Machine **não contém os pesos treinados** e não substitui os arquivos exportados.
 
-A pasta `my_model` está preparada, mas **o treinamento próprio do EcoPlant ainda não foi fornecido**. A opção de modelo empacotado permanece desabilitada até a exportação completa ser adicionada. Isso não afeta a IA pronta para uso descrita acima. Não são feitas tentativas de baixar os arquivos ausentes.
+A pasta `my_model` inclui o modelo EcoPlant de 10 classes. Sua configuração de classe saudável e classes neutras está em `ecoplant-config.json`, separada das preferências de modelos pessoais no Perfil. Para substituir o modelo empacotado, confira também essa configuração; os nomes precisam corresponder exatamente aos rótulos do novo `metadata.json`.
 
 `npm run prepare:pages` gera `dist/model-config.js` e sua cópia publicada com a disponibilidade real do modelo. A preparação só habilita o modelo do EcoPlant quando todos os arquivos do manifesto estão presentes; um pacote parcial ou inválido interrompe a publicação.
 
@@ -134,7 +152,7 @@ Aplicativo estático, sem servidor próprio. Arquivos externos usados: Firebase 
 | Pasta | Uso |
 | --- | --- |
 | `dist/` | Código do aplicativo |
-| `dist/my_model/` | Destino dos arquivos exportados do modelo; pesos ainda não fornecidos |
+| `dist/my_model/` | Modelo EcoPlant treinado: topologia, metadados, configuração e pesos |
 | `docs/` | Arquivos publicados no GitHub Pages |
 | `setup/` | Regras e instruções de configuração |
 | `scripts/` | Preparação da publicação |

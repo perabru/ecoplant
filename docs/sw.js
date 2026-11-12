@@ -1,5 +1,5 @@
 /* Public app shell and pinned SDKs only. User records stay in the UID-scoped DB. */
-const VERSION = 'v13-ecoplant-framing';
+const VERSION = 'v14-ecoplant-model';
 const PREFIX = 'ecoplant-';
 const SHELL_CACHE = `${PREFIX}shell-${VERSION}`;
 const SDK_CACHE = `${PREFIX}sdk-${VERSION}`;
