@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { describePlantSpecies } from '../dist/plant-ai.js';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const source=await readFile(root+'/dist/app.js','utf8');
 const guestSource=source.slice(source.indexOf('async function loadGuest('),source.indexOf('\nasync function persistLocal'));
@@ -48,6 +49,7 @@ function modelContext(initial={}){
   MODEL_CONFIG:{bundledModelAvailable:true,bundledHealthyClass:'Plantas_Saudaveis',bundledNeutralClasses:['Desconhecidas','Planta de plastico'],bundledLabels},
   BUNDLED_MODEL_URL:'./my_model/',IMPORTED_MODEL_URL:'local:ecoplant-model',
   validateModelURL:url=>url==='./my_model/'?bundledURL:url,photoSafe:v=>v,findPlant:()=>null,SYMPTOMS:[],scanFailure:m=>new Error(m),uuid:()=> 'analysis-1',
+  classifyPlantAI:async()=>({method:'plant-ai',possibilities:[{name:'Espécie não identificada',reason:'Fixture explícita de espécie inconclusiva.'}]}),
   Image:class {set src(value){queueMicrotask(()=>this.onload());}},console};
  vm.createContext(c);vm.runInContext(methodSource+'\n'+scanSource,c);return c;
 }
@@ -83,7 +85,7 @@ for(const topClass of ['Plantas_Saudaveis','Desconhecidas','Planta de plastico',
 }
 console.log('PASS bundled healthy/neutral policy is independent of profile, retains class/confidence, and respects low confidence');
 
-// Fresh sessions default to EcoPlant; an explicit choice remains a choice.
+// Fresh sessions identify both crop and health; an explicit model remains a choice.
 for(const preferred of ['ecoplant','teachable-machine','plant-ai','guided','']){
  const c=modelContext({scanMethod:preferred,model:{source:'files',healthyClass:'Saudável'}});
  c.findPlant=()=>({id:'leaf',photo:'data:image/jpeg;base64,AA=='});
@@ -91,12 +93,12 @@ for(const preferred of ['ecoplant','teachable-machine','plant-ai','guided','']){
  vm.runInContext(clickSource,c);
  for(const action of ['analyze-plant-photo','new-plant-analysis']){
   await c.click({target:{closest:()=>({dataset:{action,id:'leaf'}})}});
-  assert.equal(c.state.scanMethod,preferred||'ecoplant');assert.equal(c.route,'#scan?plant=leaf');assert.equal(c.state.scanOriginalPhoto,c.state.scanPhoto);
+  assert.equal(c.state.scanMethod,preferred||'plant-ai');assert.equal(c.route,'#scan?plant=leaf');assert.equal(c.state.scanOriginalPhoto,c.state.scanPhoto);
  }
  c.state.scanMethod='';c.state.model=null;c.state.profile={modelURL:'https://teachablemachine.withgoogle.com/models/own/'};
- assert.equal(c.selectedScanMethod(),'ecoplant','Existing users get the new default without deleting their custom model.');
+ assert.equal(c.selectedScanMethod(),'plant-ai','Existing users get the full analysis default without deleting their custom model.');
  assert.equal(c.customModelURL(),c.state.profile.modelURL);
- c.MODEL_CONFIG.bundledModelAvailable=false;assert.equal(c.selectedScanMethod(),'teachable-machine');
+ c.MODEL_CONFIG.bundledModelAvailable=false;assert.equal(c.selectedScanMethod(),'plant-ai');
  c.state.profile={};assert.equal(c.selectedScanMethod(),'plant-ai');
 }
 {
@@ -105,10 +107,11 @@ for(const preferred of ['ecoplant','teachable-machine','plant-ai','guided','']){
  const viewSource=source.slice(source.indexOf('function customScanModelNote('),source.indexOf('function syncScanForm('));
  vm.runInContext(viewSource,c);
  let html=c.scanView();
- assert.match(html, /<option value="ecoplant"[^>]*selected>Modelo EcoPlant — 10 classes/);
- assert.match(html, /<option value="plant-ai"[^>]*>IA geral — 14 culturas/);
+ assert.match(html, /<option value="ecoplant"[^>]*>Treinamento do projeto — 10 classes/);
+ assert.doesNotMatch(html, /<option value="ecoplant"[^>]*selected/);
+ assert.match(html, /<option value="plant-ai"[^>]*selected>Análise completa — espécie e saúde/);
  assert.match(html, /<option value="teachable-machine"[^>]*>Meu modelo do Teachable Machine/);
- assert.match(html, /Analisar com o modelo EcoPlant/);
+ assert.match(html, /Identificar planta e avaliar saúde/);
  c.resumeScanRecord({photo:c.state.scanPhoto,result:{method:'teachable-machine',modelURL:'local:ecoplant-model'}});
  html=c.scanView();assert.match(html, /<option value="teachable-machine"[^>]*selected>/);
  assert.match(html, /Para repetir este relatório, selecione novamente os arquivos do modelo original/);
@@ -146,10 +149,73 @@ for(const [url,expectedMethod] of [['local:ecoplant-model','teachable-machine'],
  const c=modelContext();c.draftKey=()=> 'draft';c.sessionStorage={getItem:()=>JSON.stringify({version:1,record:old})};
  const restoreSource=source.slice(source.indexOf('function restoreDraft('),source.indexOf('function scanFailure('));
  vm.runInContext(restoreSource,c);c.restoreDraft('user');
- assert.equal(c.state.draft.result.method,'plant-ai');assert.equal(c.selectedScanMethod(),'ecoplant','An old draft must not silently become the preference for a new photo.');
+ assert.equal(c.state.draft.result.method,'plant-ai');assert.equal(c.selectedScanMethod(),'plant-ai','A new photo defaults to complete analysis.');
  c.resumeScanRecord(c.state.draft);assert.equal(c.selectedScanMethod(),'plant-ai','An explicit retry still uses the old method.');
 }
 console.log('PASS new defaults, explicit choices, old draft preservation and original source on retry without model fallback');
+
+// Inference is explicitly mocked here so failure handling cannot depend on a
+// network server or hide a discarded result behind a successful response.
+const measuredSpecies={name:'Espécie provável: Tomateiro',reason:'Referência botânica: Solanum lycopersicum. Fixture explícita de identificação.'};
+const completeResult={method:'plant-ai',modelName:'Fixture explícita da análise completa',
+ topClass:'Tomato___healthy',confidence:.96,
+ predictions:[{className:'Tomato___healthy',probability:.96},{className:'Tomato___Early_blight',probability:.03}],
+ possibilities:[measuredSpecies]};
+const projectResult={method:'teachable-machine',modelURL:bundledURL,modelLabels:[...bundledLabels],
+ topClass:'Ferrugem',confidence:.96,predictions:[{className:'Ferrugem',probability:.96},{className:'Plantas_Saudaveis',probability:.03}]};
+{
+ const c=modelContext({model:{source:'files',healthyClass:'Saudável'},profile:{modelURL:'https://teachablemachine.withgoogle.com/models/own/'}});
+ assert.equal(c.selectedScanMethod(),'plant-ai');
+ let projectCalls=0,completeCalls=0;
+ c.classifyPlant=async()=>{projectCalls++;throw new Error('The complete analysis must not run the project model.');};
+ c.classifyPlantAI=async()=>{completeCalls++;return completeResult;};
+ const {result}=await c.generateScanReport(scanData(c.selectedScanMethod()),()=>{},new AbortController().signal);
+ assert.equal(result,completeResult);assert.equal(completeCalls,1);assert.equal(projectCalls,0);
+ assert.equal(describePlantSpecies(result).name,'Tomateiro');
+ assert.equal(describePlantSpecies(result).status,'identified');
+ c.classifyPlantAI=async()=>{throw new Error('Explicit full-analysis network error');};
+ await assert.rejects(c.generateScanReport(scanData('plant-ai'),()=>{},new AbortController().signal),/Explicit full-analysis network error/);
+ assert.equal(projectCalls,0,'A failed full analysis must not silently become a project-model prediction.');
+}
+{
+ const c=modelContext();let projectCalls=0,speciesCalls=0;
+ c.classifyPlant=async()=>{projectCalls++;return projectResult;};
+ c.classifyPlantAI=async()=>{speciesCalls++;throw Object.assign(new Error('Transferência temporariamente indisponível.'),{code:'plant-ai/network'});};
+ const {result}=await c.generateScanReport(scanData('ecoplant'),()=>{},new AbortController().signal);
+ assert.equal(projectCalls,1);assert.equal(speciesCalls,1);
+ assert.equal(result.method,'teachable-machine');assert.equal(result.topClass,projectResult.topClass);
+ assert.equal(result.confidence,projectResult.confidence);assert.equal(result.predictions,projectResult.predictions);
+ assert.equal(result.title,'Classe identificada pelo modelo');
+ assert.equal(result.possibilities[0].name,'Espécie não identificada');
+ assert.match(result.possibilities[0].reason,/Transferência temporariamente indisponível/);
+ assert.equal(describePlantSpecies(result).status,'inconclusive');
+ assert.equal(Object.hasOwn(projectResult,'possibilities'),false,'Optional species must not mutate the measured source result.');
+}
+{
+ const c=modelContext();
+ c.classifyPlant=async()=>projectResult;c.classifyPlantAI=async()=>completeResult;
+ const {result}=await c.generateScanReport(scanData('ecoplant'),()=>{},new AbortController().signal);
+ assert.equal(result.method,'teachable-machine');assert.equal(result.topClass,'Ferrugem');
+ assert.equal(result.confidence,.96);assert.equal(result.title,'Classe identificada pelo modelo');
+ assert.equal(describePlantSpecies(result).name,'Tomateiro');
+ assert.notEqual(result.possibilities,completeResult.possibilities);
+ assert.equal(result.predictions,projectResult.predictions,'Supplemental species must not overwrite the explicitly chosen training result.');
+}
+{
+ const c=modelContext(),controller=new AbortController();
+ c.classifyPlant=async()=>projectResult;
+ c.classifyPlantAI=async()=>{controller.abort();throw Object.assign(new Error('Cancelled lookup'),{name:'AbortError'});};
+ await assert.rejects(c.generateScanReport(scanData('ecoplant'),()=>{},controller.signal),{name:'AbortError'});
+}
+{
+ const c=modelContext();c.draftKey=()=> 'draft';
+ c.sessionStorage={getItem:()=>JSON.stringify({version:1,record:{id:'old-guided',photo:c.state.scanPhoto,result:{method:'guided'}}})};
+ const restoreSource=source.slice(source.indexOf('function restoreDraft('),source.indexOf('function scanFailure('));
+ vm.runInContext(restoreSource,c);c.restoreDraft('user');
+ assert.equal(c.selectedScanMethod(),'plant-ai','Opening an old observation must not become the new photo default.');
+ c.resumeScanRecord(c.state.draft);assert.equal(c.selectedScanMethod(),'guided','An explicit retry preserves observation-only mode.');
+}
+console.log('PASS separate species result, retained TM result on optional lookup error, cancellation, and no silent model fallback');
 
 // Run the real loading module against a minimal DOM. No inference is simulated here.
 const nodes=new Map(),events=new Map();let timer=0;const timers=new Map();

@@ -136,6 +136,18 @@ test('new and legacy compatibility failures retain neutral scope/enframing feedb
   assert.equal(oldResult.summary, legacy.summary);
   assert.deepEqual(oldResult.care, legacy.care);
 });
+test('disagreement between the models remains neutral when the report is restored', () => {
+  const feedback = describeInconclusiveReason('model-disagreement');
+  assert.equal(feedback.summary, 'Os dois modelos produziram avaliações diferentes sobre a saúde desta folha. Não foi atribuída uma condição saudável ou uma doença nesta análise.');
+  const stored = { method: 'plant-ai', title: feedback.title, topClass: feedback.title,
+    severity: 'observe', summary: feedback.summary, care: [...feedback.care] };
+  const restored = assertInconclusive(stored);
+  assert.equal(restored.reason, 'model-disagreement');
+  assert.equal(restored.summary, feedback.summary);
+  assert.deepEqual(restored.care, feedback.care);
+  assert.match(restored.care.join(' '), /outra foto|outras folhas|profissional/);
+  assert.equal(assertInconclusive({ ...stored, confidence: 0.99 }).reason, 'explicit-inconclusive');
+});
 test('neutral titles do not recover arbitrary disease summaries or stale scored records', () => {
   const feedback = describeInconclusiveReason('model-compatibility');
   const stored = { method:'plant-ai', title:feedback.title, topClass:feedback.title,
@@ -195,6 +207,84 @@ test('confidence is not copied into a synthetic health score', () => {
   assert.equal(Object.hasOwn(verdict, 'confidence'), false);
   assert.equal(Object.hasOwn(verdict, 'healthScore'), false);
   assert.equal(Object.hasOwn(verdict, 'predictions'), false);
+});
+
+// The bundled model supports a known healthy class and disease vocabulary,
+// while personal Teachable Machine models keep their own interpretation.
+const ecoMetadata = JSON.parse(readFileSync(new URL('../dist/my_model/metadata.json', import.meta.url), 'utf8'));
+function ecoFixture(scores = [['Plantas_Saudaveis', 0.91], ['Ferrugem', 0.05], ['Desconhecidas', 0.02]]) {
+  const predictions = scores.map(([className, probability]) => ({ className, probability }));
+  return { method: 'teachable-machine', modelName: ecoMetadata.modelName,
+    modelURL: new URL('../dist/my_model/', import.meta.url).href, modelLabels: [...ecoMetadata.labels],
+    topClass: predictions[0].className, confidence: predictions[0].probability, predictions };
+}
+test('the bundled healthy model receives the same visible health verdict as image AI', () => {
+  const verdict = describePlantHealth(ecoFixture());
+  assert.equal(verdict.status, 'healthy');
+  assert.equal(verdict.title, 'Aparência saudável');
+  assert.equal(verdict.tone, 'healthy');
+  assert.equal(verdict.crop, '', 'the disease model must not invent a species');
+  assert.match(verdict.summary, /classe saudável do modelo EcoPlant/);
+  assert.match(verdict.summary, /não descarta outros problemas/);
+  assert.equal(describePlantHealth({ ...ecoFixture(), modelURL: './my_model/' }).status, 'healthy');
+});
+test('confident EcoPlant disease classes name a visual hypothesis', () => {
+  for (const name of ['Antracnose', 'Ferrugem', 'Fumagina', 'Míldio', 'Oídio', 'Podridão_radicular']) {
+    const verdict = describePlantHealth(ecoFixture([[name, 0.89], ['Plantas_Saudaveis', 0.06], ['Desconhecidas', 0.03]]));
+    assert.equal(verdict.status, 'disease');
+    assert.equal(verdict.condition, name.replaceAll('_', ' '));
+    assert.equal(verdict.reason, 'accepted-classification');
+    assert.match(verdict.summary, /hipótese visual/);
+  }
+});
+test('split disease predictions produce an attention result without inventing the exact disease', () => {
+  const result = { ...ecoFixture([['Ferrugem', 0.4], ['Míldio', 0.3], ['Oídio', 0.15]]), title: 'Análise inconclusiva' };
+  const original = JSON.stringify(result);
+  const verdict = describePlantHealth(result);
+  assert.equal(verdict.status, 'disease');
+  assert.equal(verdict.condition, '');
+  assert.equal(verdict.crop, '');
+  assert.equal(verdict.reason, 'disease-group');
+  assert.match(verdict.summary, /não distinguem qual delas/);
+  assert.equal(Object.hasOwn(verdict, 'confidence'), false);
+  assert.equal(Object.hasOwn(verdict, 'healthScore'), false);
+  assert.equal(JSON.stringify(result), original);
+  assert.equal(describePlantHealth(ecoFixture([['Ferrugem', 0.35], ['Míldio', 0.25], ['Oídio', 0.15]])).status, 'disease');
+});
+test('truncated EcoPlant scores are never renormalized to cross the threshold', () => {
+  const result = ecoFixture([['Ferrugem', 0.3], ['Míldio', 0.2], ['Oídio', 0.1]]);
+  assert.equal(assertInconclusive(result).reason, 'low-confidence');
+  assert.equal(assertInconclusive(ecoFixture([['Plantas_Saudaveis', 0.749999], ['Ferrugem', 0.15], ['Míldio', 0.08]])).reason, 'low-confidence');
+  assert.equal(describePlantHealth(ecoFixture([['Plantas_Saudaveis', 0.75], ['Ferrugem', 0.15], ['Míldio', 0.08]])).status, 'healthy');
+});
+test('unknown, artificial plant and coloration labels never support a disease sum', () => {
+  for (const name of ['Desconhecidas', 'Planta de plastico', 'Vitiligo']) {
+    const verdict = assertInconclusive(ecoFixture([[name, 0.89], ['Ferrugem', 0.05], ['Plantas_Saudaveis', 0.03]]));
+    assert.match(verdict.summary, /não avalia|não confirma doença/);
+  }
+  assertInconclusive(ecoFixture([['Ferrugem', 0.4], ['Vitiligo', 0.3], ['Míldio', 0.15]]));
+  assertInconclusive(ecoFixture([['Ferrugem', 0.4], ['Desconhecidas', 0.3], ['Míldio', 0.15]]));
+});
+test('personal models cannot inherit the bundled EcoPlant interpretation by name alone', () => {
+  for (const changed of [
+    { modelURL: 'local:ecoplant-model' },
+    { modelURL: 'https://teachablemachine.withgoogle.com/models/example/' },
+    { modelURL: 'https://unrelated.example/my_model/' },
+    { modelName: 'Meu treinamento' },
+    { modelLabels: ['Plantas_Saudaveis', 'Ferrugem'] },
+    { modelLabels: [...ecoMetadata.labels.slice(1), ecoMetadata.labels[1]] }
+  ]) assert.equal(describePlantHealth({ ...ecoFixture(), ...changed }).status, 'unassessed');
+});
+test('malformed or stale EcoPlant scores cannot create a health verdict', () => {
+  for (const changed of [
+    { confidence: '0.91' }, { confidence: NaN }, { confidence: 0.92 },
+    { topClass: 'Ferrugem' }, { severity: 'inconclusive' }, { status: 'inconclusive' },
+    { title: 'Análise inconclusiva' },
+    { predictions: [{ className: 'Plantas_Saudaveis', probability: 0.91 }] },
+    { predictions: [{ className: 'Plantas_Saudaveis', probability: 0.91 }, { className: 'Plantas_Saudaveis', probability: 0.05 }] },
+    { predictions: [{ className: 'Plantas_Saudaveis', probability: 0.91 }, { className: 'Ferrugem', probability: 0.3 }] },
+    { predictions: [{ className: 'Plantas_Saudaveis', probability: 0.91 }, { className: 'constructor', probability: 0.05 }] }
+  ]) assertInconclusive({ ...ecoFixture(), ...changed });
 });
 
 console.log(`${checks} plant-health interpretation checks passed.`);

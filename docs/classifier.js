@@ -20,6 +20,7 @@ const scriptLoads = new Map();
 const models = new Map();
 const disposedModels = new WeakSet();
 let librariesPromise;
+let cpuBackendPromise;
 let pendingImport;
 
 function failure(code, message, cause) {
@@ -111,8 +112,7 @@ async function ensureLibraries() {
       } catch {
         // TensorFlow CPU is slower but works on devices without a usable WebGL context.
         try {
-          await globalThis.tf.setBackend('cpu');
-          await globalThis.tf.ready();
+          await ensureCPUBackend();
         } catch (error) {
           throw failure('backend-unavailable', 'Este navegador não conseguiu iniciar o processamento da imagem. Tente uma versão atualizada do Safari ou Chrome.', error);
         }
@@ -121,6 +121,24 @@ async function ensureLibraries() {
     librariesPromise.catch(() => { librariesPromise = undefined; });
   }
   return librariesPromise;
+}
+
+// A device can initialize WebGL successfully and still lose its context or fail
+// to compile a kernel on its first photo. Keep the same weights and retry once
+// on the built-in CPU backend instead of asking the user to import the model.
+// Share a backend switch if two callers encounter the same device failure.
+function ensureCPUBackend() {
+  if (!cpuBackendPromise) {
+    const runtime = globalThis.tf;
+    const pending = (async () => {
+      if (await runtime.setBackend('cpu') === false) throw new Error('CPU backend is unavailable.');
+      await runtime.ready();
+    })();
+    cpuBackendPromise = pending;
+    const settled = () => { if (cpuBackendPromise === pending) cpuBackendPromise = undefined; };
+    pending.then(settled, settled);
+  }
+  return cpuBackendPromise;
 }
 
 function officialStorageURL(url, source) {
@@ -573,20 +591,34 @@ export async function classifyPlant(imageOrCanvas, baseUrl, onProgress, options 
   report(onProgress, 'Analisando a foto com o seu modelo…', 'predicting');
   if (options.signal?.aborted || loaded.retired) throw cancellation();
   let raw;
-  try {
+  const predict = async () => {
+    if (options.signal?.aborted || loaded.retired) throw cancellation();
     loaded.inFlight += 1;
     const release = () => { loaded.inFlight -= 1; disposeWhenIdle(loaded); };
-    let prediction;
-    try {
-      prediction = Promise.resolve(model.predict(imageOrCanvas, false));
-    } catch (error) {
-      release();
-      throw error;
-    }
-    // Release only after actual prediction completion, even if the caller aborts early.
-    prediction = prediction.then(value => { release(); return value; }, error => { release(); throw error; });
-    raw = options.signal ? await abortable(prediction, options.signal) : await prediction;
+    // Keep the model alive until the actual operation settles, including when
+    // the user cancels or replaces an imported model while data() is pending.
+    const pending = Promise.resolve().then(() => {
+      if (options.signal?.aborted || loaded.retired) throw cancellation();
+      return model.predict(imageOrCanvas, false);
+    });
+    pending.then(release, release);
+    const result = options.signal ? await abortable(pending, options.signal) : await pending;
     if (loaded.retired) throw cancellation();
+    return result;
+  };
+  const startedBackend = globalThis.tf?.getBackend?.();
+  try {
+    try {
+      raw = await predict();
+    } catch (error) {
+      if (options.signal?.aborted || loaded.retired || error?.name === 'AbortError') throw cancellation();
+      if (startedBackend !== 'webgl') throw error;
+      report(onProgress, 'Ajustando o processamento para este dispositivo…', 'backend-retry');
+      if (options.signal?.aborted || loaded.retired) throw cancellation();
+      const fallback = ensureCPUBackend();
+      if (options.signal) await abortable(fallback, options.signal); else await fallback;
+      raw = await predict();
+    }
   } catch (error) {
     if (options.signal?.aborted || error?.name === 'AbortError') throw cancellation();
     throw failure('prediction-failed', 'Não foi possível processar esta foto. Tente uma nova imagem ou reinicie o aplicativo.', error);

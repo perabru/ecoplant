@@ -1,5 +1,6 @@
 /** Ecoplant — reports render measured model outputs, never an invented health score. */
 import { describePlantHealth, PLANT_HEALTH_POLICY, PLANT_HEALTH_POLICY_VERSION } from './plant-health.js';
+import { describePlantSpecies } from './plant-ai.js';
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const text = (value, fallback = 'Não informado') => escapeHTML(String(value ?? '').trim() || fallback);
 const recordObject = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -102,6 +103,9 @@ const CSS = `<style>
 .rp-verdict-details dt{font-size:10px;line-height:1.5;color:var(--rp-verdict-text);margin-bottom:3px}
 .rp-verdict-details dd{font-size:14px;font-weight:600;line-height:1.5;margin:0;overflow-wrap:anywhere;color:var(--rp-verdict-text)}
 .rp-verdict-details .rp-verdict-condition dd{font-size:20px;line-height:1.3}
+.rp-species-details{background:#edf2e6;border:1px solid #d6e1ca}.rp-species-details dt{color:#496b40}.rp-species-details dd{color:#244d36}.rp-species-details dd>strong{font-size:23px;line-height:1.3}.rp-species-summary{font-size:11px;line-height:1.75;font-weight:400;margin:7px 0 0;overflow-wrap:anywhere}.rp-analysis-notes{grid-column:1/-1}
+@media screen{html[data-theme="dark"] .rp-species-details{background:#243f2e;border-color:#486741}html[data-theme="dark"] .rp-species-details dt{color:#bad4ac}html[data-theme="dark"] .rp-species-details dd{color:#def0d2}}
+@media print{.rp-species-details dd>strong{font-size:13pt}.rp-species-summary{font-size:7px;line-height:1.5;margin:1mm 0 0}}
 .rp-verdict-explanation{font-size:14px;line-height:1.8;margin-top:16px;color:#586e5b}
 .rp-verdict-danger .rp-donut .rp-progress{stroke:#b76a52}
 .eco-report[data-health-status="disease"] .rp-bar,.eco-report[data-health-status="pest"] .rp-bar{background:#b76a52}
@@ -121,8 +125,14 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const result = recordObject(record.result);
   const isTM = result.method === 'teachable-machine';
   const isAI = result.method === 'plant-ai';
-  const assessment = isAI ? describePlantHealth(result) : null;
   const isAutomated = isTM || isAI;
+  const measuredAssessment = isAutomated ? describePlantHealth(result) : null;
+  const assessment = measuredAssessment?.status !== 'unassessed' ? measuredAssessment : null;
+  const assessed = Boolean(assessment);
+  const species = isAutomated ? describePlantSpecies(result) : null;
+  const registeredSpecies = String(plant.species || '').trim();
+  const speciesFieldLabel = registeredSpecies || !isAutomated ? 'Espécie cadastrada' : species.status === 'identified' ? 'Espécie provável (IA)' : 'Espécie (IA)';
+  const speciesFieldValue = registeredSpecies || (species?.status === 'identified' ? `${species.name} (provável)` : species?.name || '');
   const predictions = (Array.isArray(result.predictions) ? result.predictions : [])
     .filter(p => p && typeof p.className === 'string' && p.className.trim() && probability(p.probability) !== null)
     .map(p => ({className:p.className, probability:probability(p.probability)}))
@@ -131,15 +141,17 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const suppliedConfidence = probability(result.confidence) !== null;
   // Plant AI omits confidence/predictions when the image is outside its supported scope.
   // Never recover a disease label or chart from incomplete/inconclusive output.
-  const inconclusive = isAutomated && (result.severity === 'inconclusive'
-    || (isTM && result.title === 'Análise inconclusiva') || (isAI && assessment.status === 'inconclusive'));
+  const inconclusive = isAutomated && (assessed ? assessment.status === 'inconclusive'
+    : result.severity === 'inconclusive' || result.title === 'Análise inconclusiva');
   const hasConfidence = !inconclusive && (suppliedConfidence || (isTM && predictions.length > 0));
+  const groupedDisease = assessment?.reason === 'disease-group';
+  const showHeadlineConfidence = hasConfidence && !groupedDisease;
   const confidence = suppliedConfidence ? probability(result.confidence) : predictions[0]?.probability ?? 0;
   // The interpretation belongs to this analysis, not to the user's current
   // model settings. title/summary also fit the existing Firebase rules.
-  const healthy = isTM && !inconclusive && result.title === 'Classe saudável no modelo'
+  const healthy = isTM && !assessed && !inconclusive && result.title === 'Classe saudável no modelo'
     && Array.isArray(result.modelLabels) && result.modelLabels.includes(topClass);
-  const outsideHealth = isTM && !inconclusive && result.title === 'Classe fora da avaliação de saúde'
+  const outsideHealth = isTM && !assessed && !inconclusive && result.title === 'Classe fora da avaliação de saúde'
     && Array.isArray(result.modelLabels) && result.modelLabels.includes(topClass);
   const photo = picture(record.photo) || picture(plant.photo);
   const plantName = String(plant.name || '').trim() || 'Planta da foto';
@@ -149,10 +161,12 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   const reportDate = dateLabel(record.date || result.analyzedAt || record.createdAt);
   const author = String(profile.displayName || profile.name || 'Usuário Ecoplant');
   const symptoms = (Array.isArray(record.symptoms) ? record.symptoms : []).filter(v => typeof v === 'string');
-  const possibilities = (Array.isArray(result.possibilities) ? result.possibilities : []).filter(v => v && typeof v === 'object');
+  const possibilities = (Array.isArray(result.possibilities) ? result.possibilities : [])
+    .filter(v => v && typeof v.name === 'string' && v.name.trim() && typeof v.reason === 'string' && v.reason.trim());
+  const supplemental = isAutomated ? possibilities.filter(item => !item.name.startsWith('Espécie provável: ') && item.name !== 'Espécie não identificada') : [];
   const isObservation = !isAutomated && !symptoms.length && !possibilities.length;
-  const title = inconclusive ? 'Análise inconclusiva' : isTM ? topClass : isAI ? assessment.title : String(result.title || (isObservation ? 'Registro fotográfico' : 'Registro de observação'));
-  const suppliedCare = isAI ? assessment.care : !isTM && Array.isArray(result.care) ? result.care.filter(item => typeof item === 'string' && item.trim()) : [];
+  const title = inconclusive ? 'Análise inconclusiva' : assessed ? assessment.title : isTM ? topClass : String(result.title || (isObservation ? 'Registro fotográfico' : 'Registro de observação'));
+  const suppliedCare = assessed ? assessment.care : !isTM && Array.isArray(result.care) ? result.care.filter(item => typeof item === 'string' && item.trim()) : [];
   const care = suppliedCare.length ? suppliedCare : outsideHealth ? [
     'Confira se a fotografia mostra uma folha natural, inteira e bem iluminada.',
     'Se a imagem era de uma planta, tente outra foto com pouco fundo e compare com as classes atendidas pelo modelo.',
@@ -169,7 +183,7 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
   ];
   // The three displayed predictions do not establish the model's full training scope.
   const scope = Array.isArray(result.modelLabels) ? result.modelLabels.filter(label => typeof label === 'string' && label.trim()).length : 0;
-  const modelSummary = isAI
+  const modelSummary = assessed
     ? assessment.summary
     : isTM ? (inconclusive ? 'O modelo não apresentou uma classificação conclusiva para esta imagem.' : String(result.summary || `O modelo escolheu a classe de maior probabilidade entre ${scope || 'as'} classes disponíveis. O resultado depende das imagens e das condições utilizadas no treinamento.`))
     : isObservation ? 'A fotografia serve como registro. Nenhum sinal foi informado e a imagem não foi analisada automaticamente.'
@@ -180,7 +194,7 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
     ? 'Identificação preliminar por imagem. O modelo compara a foto apenas com as classes em que foi treinado; uma planta fora desse conjunto também recebe uma classificação. A confiança não confirma a doença nem informa sua gravidade. Confirme alterações com um profissional antes de iniciar tratamentos.'
     : String(result.disclaimer || 'Registro baseado nas observações informadas. Esta avaliação não confirma a presença ou ausência de doença. Procure orientação especializada para interpretar alterações persistentes.');
   const linkedPlantId = String(plant.id || record.plantId || '');
-  const status = isAI ? (inconclusive ? 'IA · análise inconclusiva' : assessment.status === 'healthy' ? 'IA · aparência saudável' : assessment.status === 'pest' ? 'IA · possível praga' : 'IA · possível doença')
+  const status = assessed ? `${isAI ? 'IA' : 'EcoPlant'} · ${inconclusive ? 'análise inconclusiva' : assessment.status === 'healthy' ? 'aparência saudável' : assessment.status === 'pest' ? 'possível praga' : 'possível doença'}`
     : isTM ? (inconclusive ? 'Classificação inconclusiva' : outsideHealth ? 'Classe fora da avaliação de saúde' : healthy ? 'Classe saudável no modelo' : 'Classe identificada pelo modelo')
     : isObservation ? 'Registro fotográfico · sem IA' : 'Triagem por sinais informados';
   const methodLabel = isAI ? 'Análise de imagem por IA' : isTM ? 'Classificação de imagem · Teachable Machine'
@@ -191,37 +205,41 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
     return `<div class="rp-prediction"><div class="rp-prediction-label"><span>${text(label)}${original}</span><strong>${percent(p.probability)}</strong></div><div class="rp-track" role="meter" aria-label="${text(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${(p.probability * 100).toFixed(1)}"><div class="rp-bar" style="--rp-width:${(p.probability * 100).toFixed(2)}%"></div></div></div>`;
   }).join('') : '';
   const guidedCards = possibilities.slice(0,3).map(p => `<article class="rp-guided-card"><h4>${text(p.name)}</h4><p>${text(p.reason)}</p></article>`).join('');
-  const resultHeading = isAI ? (inconclusive ? 'Como obter um resultado melhor' : 'Detalhes da classificação') : isTM ? 'O que o modelo encontrou' : isObservation ? 'O que foi registrado' : 'Possibilidades observadas';
-  const resultNote = isAutomated ? (inconclusive ? 'Não há uma identificação conclusiva para esta imagem.' : 'Pontuações das classes comparadas pela IA. Elas não representam a porcentagem de saúde da planta.')
+  const supplementalCards = supplemental.slice(0,6).map(p => `<article class="rp-guided-card"><h4>${text(p.name)}</h4><p>${text(p.reason)}</p></article>`).join('');
+  const resultHeading = assessed ? (inconclusive ? 'Como obter um resultado melhor' : 'Detalhes da classificação') : isTM ? 'O que o modelo encontrou' : isObservation ? 'O que foi registrado' : 'Possibilidades observadas';
+  const resultNote = isAutomated ? (inconclusive ? 'Não há uma avaliação de saúde conclusiva para esta imagem.' : 'Pontuações das classes comparadas pela IA. Elas não representam a porcentagem de saúde da planta.')
     : isObservation ? 'Fotografia e observações para acompanhar a evolução.' : 'Hipóteses baseadas nos sinais que você selecionou.';
   const resultContent = isAutomated ? (inconclusive
-    ? `<p class="rp-section-note">${isAI ? 'Nenhuma condição de saúde foi atribuída a esta foto. Ajuste o enquadramento de uma única folha e confira se a planta está entre as culturas atendidas. Um novo recorte pode ajudar, mas não garante que o modelo conheça o caso.' : 'O modelo próprio não diferenciou suas classes com confiança suficiente. Confira as classes do treinamento e tente uma foto com boa luz e enquadramento semelhante aos exemplos utilizados.'}</p>`
+    ? `<p class="rp-section-note">${assessed ? 'Nenhuma condição de saúde foi atribuída a esta foto. Ajuste o enquadramento de uma única folha e confira se a planta está entre as culturas atendidas. Um novo recorte pode ajudar, mas não garante que o modelo conheça o caso.' : 'O modelo próprio não diferenciou suas classes com confiança suficiente. Confira as classes do treinamento e tente uma foto com boa luz e enquadramento semelhante aos exemplos utilizados.'}</p>`
     : bars || '<p class="rp-section-note">Não há probabilidades disponíveis neste registro.</p>')
     : guidedCards || '<p class="rp-section-note">Não foram sugeridas hipóteses para este registro.</p>';
-  const verdictTone = isAI ? assessment.tone : outsideHealth ? 'neutral' : '';
-  const verdictIcon = isAI ? assessment.status === 'healthy' ? 'check' : inconclusive ? 'search' : 'alert' : outsideHealth ? 'search' : healthy ? 'check' : 'info';
+  const verdictTone = assessed ? assessment.tone : outsideHealth ? 'neutral' : '';
+  const verdictIcon = assessed ? assessment.status === 'healthy' ? 'check' : inconclusive ? 'search' : 'alert' : outsideHealth ? 'search' : healthy ? 'check' : 'info';
   const conditionLabel = assessment?.status === 'pest' ? 'Possível praga' : 'Possível doença';
   const recoveryActions = inconclusive || outsideHealth ? `<div class="rp-recovery no-print" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px">${picture(record.photo) ? `<button type="button" class="btn secondary small" data-action="adjust-report-photo">${icon('camera')}Ajustar foto e tentar novamente</button>` : ''}${isAI ? '<a class="btn secondary small" href="#profile?model=files">Usar meu modelo treinado</a>' : ''}</div>` : '';
-  const verdictDetails = isAI && !inconclusive ? `<dl class="rp-verdict-details"><div><dt>Planta reconhecida pelo modelo</dt><dd>${text(assessment.crop)}</dd></div>${assessment.status === 'disease' || assessment.status === 'pest' ? `<div class="rp-verdict-condition"><dt>${conditionLabel}</dt><dd>${text(assessment.condition)}</dd></div>` : `<div><dt>Aspecto da folha</dt><dd>Compatível com a classe saudável</dd></div>`}</dl>` : '';
-  return `${CSS}<article class="eco-report"${isAI ? ` data-health-status="${escapeHTML(assessment.status)}"` : ''} aria-label="Relatório Ecoplant de ${text(plantName)}">
+  const speciesDetails = isAutomated ? `<dl class="rp-verdict-details rp-species-details" data-species-status="${text(species.status)}"><div><dt>${species.status === 'identified' ? 'Espécie provável' : 'Identificação da espécie por IA'}</dt><dd><strong>${text(species.name)}</strong><p class="rp-species-summary">${text(species.summary)}</p></dd></div></dl>` : '';
+  const verdictDetails = assessed && !inconclusive ? `<dl class="rp-verdict-details">${assessment.crop && species?.status === 'unassessed' ? `<div><dt>Planta reconhecida pelo modelo</dt><dd>${text(assessment.crop)}</dd></div>` : ''}${assessment.status === 'disease' || assessment.status === 'pest' ? `<div class="rp-verdict-condition"><dt>${conditionLabel}</dt><dd>${text(assessment.condition, 'Causa ainda não definida')}</dd></div>` : `<div><dt>Aspecto da folha</dt><dd>Compatível com a classe saudável</dd></div>`}</dl>` : '';
+  return `${CSS}<article class="eco-report"${assessed ? ` data-health-status="${escapeHTML(assessment.status)}"` : ''} aria-label="Relatório Ecoplant de ${text(plantName)}">
     <header class="rp-toolbar no-print"><div><div class="eyebrow">ECOPLANT / ACOMPANHAMENTO</div><h1>Relatório da planta</h1><p>Leia o relatório aqui e exporte quando precisar.</p></div><div class="rp-toolbar-actions"><button type="button" class="btn secondary small" data-action="print-report">${icon('print')}Imprimir / PDF</button><button type="button" class="btn secondary small" data-action="export-report">${icon('download')}Exportar relatório</button></div></header>
     ${draft ? `<div class="rp-draft-banner no-print">${icon('save')}<span>Relatório gerado. Salve para incluí-lo no histórico da planta.</span></div>` : ''}
     <div class="rp-sheet">
       <div class="rp-masthead"><div><div class="rp-wordmark"><img class="rp-brand-logo" src="./assets/ecoplant-logo.png" width="34" height="34" alt="Logo Ecoplant">Ecoplant</div><div class="rp-kicker">Relatório de acompanhamento vegetal</div></div><div class="rp-reportid"><strong>REGISTRO ${text(reportId)}</strong>${text(reportDate)}</div></div>
       <section class="rp-overview" aria-label="Resumo da avaliação">
         <div class="rp-photo-wrap">${photo ? `<img class="rp-photo" src="${escapeHTML(photo)}" alt="Foto registrada de ${text(plantName)}">` : `<div class="rp-no-photo" role="img" aria-label="Registro sem fotografia">${icon('leaf')}</div>`}<p class="rp-photo-note">${photo ? 'Fotografia vinculada a este registro. Compare com novas fotos da mesma região.' : 'Nenhuma fotografia foi vinculada a este registro.'}</p></div>
-        <div class="rp-summary${isAI || outsideHealth ? ` rp-verdict-${verdictTone}` : ''}"><span class="rp-status${isAI || outsideHealth ? ` rp-status-${verdictTone}` : healthy ? '' : ' amber'}">${icon(verdictIcon)}${text(status)}</span><h2>${text(title)}</h2><p class="rp-plant">${text(plantName)}${plant.species ? ` · <i>${text(plant.species)}</i>` : ''}</p>
+        <div class="rp-summary${assessed || outsideHealth ? ` rp-verdict-${verdictTone}` : ''}"><span class="rp-status${assessed || outsideHealth ? ` rp-status-${verdictTone}` : healthy ? '' : ' amber'}">${icon(verdictIcon)}${text(status)}</span><h2>${text(title)}</h2><p class="rp-plant">${text(plantName)}</p>
+          ${speciesDetails}
           ${verdictDetails}
-          ${isAI ? `<p class="rp-verdict-explanation">${text(modelSummary)}</p>` : ''}
-          ${isAutomated && hasConfidence ? `<div class="rp-metric"><div class="rp-donut" role="img" aria-label="Confiança ${isAI ? 'na classificação' : 'do modelo'}: ${percent(confidence)}" style="--rp-dash:${(251.3274 * (1-confidence)).toFixed(4)}"><svg viewBox="0 0 96 96" aria-hidden="true"><circle cx="48" cy="48" r="40"/><circle class="rp-progress" cx="48" cy="48" r="40"/></svg><strong>${percent(confidence)}</strong></div><div class="rp-metric-label"><strong>${isAI ? 'Confiança na classificação' : 'Confiança do modelo'}</strong><p>Probabilidade atribuída à classe. Este valor não mede a saúde ou a gravidade da doença.</p></div></div>` : !isAI ? `<p class="rp-model-note">${isAutomated ? (inconclusive ? 'Não foi atribuída uma classificação com confiança suficiente.' : 'A confiança do modelo não está disponível neste registro.') : text(result.summary, 'Observações registradas para acompanhar a evolução da planta.')}</p>` : ''}
-          ${!isAI ? `<p class="rp-model-note">${text(modelSummary)}</p>` : ''}
+          ${assessed ? `<p class="rp-verdict-explanation">${text(modelSummary)}</p>` : ''}
+          ${isAutomated && showHeadlineConfidence ? `<div class="rp-metric"><div class="rp-donut" role="img" aria-label="Confiança ${assessed ? 'na classificação' : 'do modelo'}: ${percent(confidence)}" style="--rp-dash:${(251.3274 * (1-confidence)).toFixed(4)}"><svg viewBox="0 0 96 96" aria-hidden="true"><circle cx="48" cy="48" r="40"/><circle class="rp-progress" cx="48" cy="48" r="40"/></svg><strong>${percent(confidence)}</strong></div><div class="rp-metric-label"><strong>${assessed ? 'Confiança na classificação' : 'Confiança do modelo'}</strong><p>Probabilidade atribuída à classe. Este valor não mede a saúde ou a gravidade da doença.</p></div></div>` : !assessed ? `<p class="rp-model-note">${isAutomated ? (inconclusive ? 'Não foi atribuída uma classificação com confiança suficiente.' : 'A confiança do modelo não está disponível neste registro.') : text(result.summary, 'Observações registradas para acompanhar a evolução da planta.')}</p>` : ''}
+          ${!assessed ? `<p class="rp-model-note">${text(modelSummary)}</p>` : ''}
           ${recoveryActions}
         </div>
       </section>
-      <dl class="rp-record-details"><div><dt>Planta</dt><dd>${text(plantName)}</dd></div><div><dt>Espécie</dt><dd>${text(plant.species)}</dd></div><div><dt>Local</dt><dd>${text(plant.location)}</dd></div><div><dt>Responsável</dt><dd>${text(author)}</dd></div></dl>
+      <dl class="rp-record-details"><div><dt>Planta</dt><dd>${text(plantName)}</dd></div><div><dt>${text(speciesFieldLabel)}</dt><dd>${text(speciesFieldValue)}</dd></div><div><dt>Local</dt><dd>${text(plant.location)}</dd></div><div><dt>Responsável</dt><dd>${text(author)}</dd></div></dl>
       <div class="rp-body">
         <section class="rp-section"><h3>${text(resultHeading)}</h3><p class="rp-section-note">${text(resultNote)}</p>${resultContent}</section>
         <section class="rp-section"><h3>${inconclusive||outsideHealth?'Para tentar novamente':'Próximos cuidados'}</h3><ul class="rp-checks">${care.slice(0,6).map(item => `<li>${icon('check')}<span>${text(item)}</span></li>`).join('')}</ul></section>
+        ${supplementalCards ? `<section class="rp-section rp-analysis-notes"><h3>Notas da análise</h3>${supplementalCards}</section>` : ''}
         <section class="rp-section"><h3>Suas observações</h3><div class="rp-observation">${text(record.notes, 'Nenhuma observação adicional foi informada neste registro.')}</div>${symptoms.length ? `<div class="rp-chips" aria-label="Sinais informados">${symptoms.slice(0,12).map(v => `<span class="rp-chip">${text(SYMPTOM_NAMES[v] || v)}</span>`).join('')}</div>` : ''}</section>
         <section class="rp-section"><h3>Como acompanhar</h3><ul class="rp-checks"><li>${icon('camera')}<span>Use esta foto como referência. Uma nova avaliação cria um registro separado e preserva este resultado.</span></li><li>${icon('clock')}<span>Compare o aspecto das folhas e suas anotações ao longo do tempo. Não use a variação da confiança como medida de melhora.</span></li></ul></section>
         <section class="rp-metadata"><div><h3>Método de avaliação</h3><p>${text(methodLabel)}<br>${isAutomated ? text(modelName) : 'A foto não foi analisada automaticamente.'}${isAutomated && scope ? `<br>${scope} classes no treinamento do modelo` : ''}</p></div><div><h3>${isAutomated ? 'Origem do modelo' : 'Sobre este registro'}</h3><p>${isAutomated ? (modelURL ? text(modelURL) : 'Endereço do modelo não informado neste registro.') : isObservation ? 'Registro fotográfico sem identificação automática e sem hipótese de doença.' : 'As hipóteses são orientativas e dependem da precisão dos sinais informados.'}</p></div></section>
@@ -237,13 +255,16 @@ export function reportHTML(record = {}, plant = {}, profile = {}, options = {}) 
 export function downloadReport(record = {}, plant = {}) {
   record = recordObject(record);
   plant = recordObject(plant);
+  const automated = record.result?.method === 'plant-ai' || record.result?.method === 'teachable-machine';
+  const assessment = automated ? describePlantHealth(record.result) : null;
   const envelope = {
     app:'Ecoplant', formatVersion:1, exportedAt:new Date().toISOString(),
     note:'Confiança do modelo não mede saúde ou gravidade. Registro de acompanhamento, não diagnóstico confirmado.',
     plant:{id:plant.id || record.plantId || null, name:plant.name || 'Planta da foto', species:plant.species || '', location:plant.location || '', notes:plant.notes || ''},
     report:record,
-    ...(record.result?.method === 'plant-ai' ? {assessment:{
-      ...describePlantHealth(record.result),
+    ...(automated ? {speciesAssessment:describePlantSpecies(record.result)} : {}),
+    ...(assessment && assessment.status !== 'unassessed' ? {assessment:{
+      ...assessment,
       scope:'Aparência da folha fotografada; não representa a saúde da planta inteira.',
       policy:{version:PLANT_HEALTH_POLICY_VERSION, ...PLANT_HEALTH_POLICY, note:'Critérios de exibição definidos pelo EcoPlant; não são precisão diagnóstica validada.'}
     }} : {})

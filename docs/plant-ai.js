@@ -39,6 +39,29 @@ const LABELS = Object.freeze([
   'Tomato___Septoria_leaf_spot', 'Tomato___Spider_mites Two-spotted_spider_mite', 'Tomato___Target_Spot',
   'Tomato___Tomato_Yellow_Leaf_Curl_Virus', 'Tomato___Tomato_mosaic_virus', 'Tomato___healthy'
 ]);
+// The model predicts crop groups, not every botanical species. In particular,
+// cherry, blueberry and squash labels do not identify one exact species.
+const CROP_INFO = Object.freeze({
+  Apple: ['Macieira', 'Malus domestica'],
+  Blueberry: ['Mirtilo', 'Vaccinium spp.'],
+  'Cherry_(including_sour)': ['Cerejeira', 'Prunus spp.'],
+  'Corn_(maize)': ['Milho', 'Zea mays'],
+  Grape: ['Videira', 'Vitis spp.'],
+  Orange: ['Laranjeira', 'Citrus spp.'],
+  Peach: ['Pessegueiro', 'Prunus persica'],
+  'Pepper,_bell': ['Pimentão', 'Capsicum annuum'],
+  Potato: ['Batateira', 'Solanum tuberosum'],
+  Raspberry: ['Framboeseira', 'Rubus spp.'],
+  Soybean: ['Soja', 'Glycine max'],
+  Squash: ['Abóbora', 'Cucurbita spp.'],
+  Strawberry: ['Morangueiro', 'Fragaria spp.'],
+  Tomato: ['Tomateiro', 'Solanum lycopersicum']
+});
+const SPECIES_PREFIX = 'Espécie provável: ';
+const SPECIES_UNKNOWN = 'Espécie não identificada';
+// Application display policy, not calibrated botanical-identification accuracy.
+const SPECIES_MIN_CONFIDENCE = 0.75;
+const SPECIES_MIN_MARGIN = 0.15;
 const ASSETS = Object.freeze([
   { name: 'model', url: `${MODEL_URL}/resolve/${MODEL_REVISION}/onnx/model_with_features_quantized.onnx`, bytes: 24231170, sha256: '907fe4ed9d5f3fa6f6f6a9321a4564766e5136a2f316a2b23c930c3bfa13d72b' },
   { name: 'centroids', url: `https://huggingface.co/spaces/rodynaemad/plant-disease-scanner/resolve/${SPACE_REVISION}/centroids.f32`, bytes: 116736, sha256: 'e873c9330db03dddf31e1f73db8fcb0bc4a186b69ff4d944aaec703beeeb5e51' }
@@ -103,7 +126,8 @@ function runtimeAttempt(signal) {
     };
     const abort = () => finish(reason(signal));
     const timer = setTimeout(() => finish(failure('library-unavailable', 'O carregamento da biblioteca de IA demorou demais. Confira a conexão e tente novamente.')), 30000);
-    script.src = `${RUNTIME_BASE}ort.min.js`;
+    // Use the WASM-only build to avoid downloading unused WebGPU/JSEP code.
+    script.src = `${RUNTIME_BASE}ort.wasm.min.js`;
     script.async = true;
     script.crossOrigin = 'anonymous';
     script.referrerPolicy = 'no-referrer';
@@ -347,12 +371,54 @@ function preprocess(image, runtime) {
     return new runtime.Tensor('float32', data, [1, 3, 224, 224]);
   } catch (error) { throw failure('invalid-image', 'Não foi possível ler esta foto. Escolha outra imagem JPG, PNG ou WebP de uma única folha.', error); }
 }
+function unknownSpecies(reason) {
+  return { name: SPECIES_UNKNOWN, reason };
+}
+function speciesPossibility(predictions) {
+  // Sum every crop's measured class scores before reducing the stored disease
+  // list to three. Several uncertain diseases can still identify the same crop.
+  const totals = new Map(Object.keys(CROP_INFO).map(crop => [crop, 0]));
+  for (const prediction of predictions) {
+    const crop = prediction.className.split('___')[0];
+    totals.set(crop, totals.get(crop) + prediction.probability);
+  }
+  const ranked = [...totals].sort((a, b) => b[1] - a[1]);
+  const [crop, probability] = ranked[0];
+  if (probability < SPECIES_MIN_CONFIDENCE || probability - ranked[1][1] < SPECIES_MIN_MARGIN) return unknownSpecies(
+    'A IA não diferenciou a cultura com segurança suficiente. Envie uma foto nítida de uma única folha; o reconhecimento cobre apenas as 14 culturas informadas no aplicativo.'
+  );
+  const [name, scientificName] = CROP_INFO[crop];
+  const score = (probability * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return {
+    name: SPECIES_PREFIX + name,
+    reason: `Referência botânica: ${scientificName}. Pontuação para a cultura: ${score}% entre as 14 culturas do modelo. ${scientificName.endsWith('spp.') ? 'Este grupo inclui várias espécies; a foto não diferencia a espécie exata. ' : ''}Identificação visual preliminar, sem confirmação botânica.`
+  };
+}
+
+/** Read species feedback shared by the built-in and combined analysis flows. */
+export function describePlantSpecies(result) {
+  const entries = Array.isArray(result?.possibilities) ? result.possibilities : [];
+  for (const entry of entries) {
+    if (typeof entry?.name !== 'string' || typeof entry.reason !== 'string' || !entry.reason.trim()) continue;
+    if (entry.name.startsWith(SPECIES_PREFIX)) {
+      const name = entry.name.slice(SPECIES_PREFIX.length);
+      if (Object.values(CROP_INFO).some(info => info[0] === name)) return { status: 'identified', name, summary: entry.reason };
+    }
+    if (entry.name === SPECIES_UNKNOWN) return { status: 'inconclusive', name: SPECIES_UNKNOWN, summary: entry.reason };
+  }
+  return {
+    status: 'unassessed', name: 'Espécie não analisada',
+    summary: 'Este registro não contém identificação da espécie. Faça uma nova análise com a foto da folha.'
+  };
+}
+
 function outputsToResult(outputs, centroids) {
   const logits = outputs?.logits?.data, features = outputs?.features?.data;
   if (logits?.length !== LABELS.length || features?.length !== FEATURE_DIM || outputs.logits.dims?.join(',') !== '1,38' || outputs.features.dims?.join(',') !== '1,768' || !Array.from(logits).every(Number.isFinite) || !Array.from(features).every(Number.isFinite)) throw failure('inference', 'A IA retornou dados inválidos. Tente outra foto ou gere um relatório de observação.');
   const max = Math.max(...logits), exp = Array.from(logits, value => Math.exp(value - max)), sum = exp.reduce((total, value) => total + value, 0);
   if (!Number.isFinite(sum) || sum <= 0) throw failure('inference', 'A IA não conseguiu calcular um resultado válido para esta foto.');
-  const predictions = exp.map((value, index) => ({ className: LABELS[index], probability: value / sum })).sort((a, b) => b.probability - a.probability).slice(0, 3);
+  const allPredictions = exp.map((value, index) => ({ className: LABELS[index], probability: value / sum })).sort((a, b) => b.probability - a.probability);
+  const predictions = allPredictions.slice(0, 3);
   const norm = Math.hypot(...features);
   let similarity = -Infinity;
   if (norm > 0) for (let i = 0; i < LABELS.length; i++) {
@@ -365,16 +431,20 @@ function outputsToResult(outputs, centroids) {
     const explanation = describeInconclusiveReason('model-compatibility');
     return {
       ...base, title: explanation.title, topClass: explanation.title, severity: 'observe',
-      summary: explanation.summary, care: explanation.care
+      summary: explanation.summary, care: explanation.care,
+      possibilities: [unknownSpecies('A foto não foi suficientemente compatível com as folhas das 14 culturas reconhecidas. Nenhuma espécie foi atribuída; tente uma folha inteira, centralizada e com fundo simples.')]
     };
   }
+  // Reuse an existing persisted field: production Firebase rules accept these
+  // name/reason entries. Do not add an unsupported field or store 38 scores.
+  const identifiedBase = { ...base, possibilities: [speciesPossibility(allPredictions)] };
   const best = predictions[0];
-  const measured = { ...base, topClass: best.className, confidence: best.probability, predictions };
+  const measured = { ...identifiedBase, topClass: best.className, confidence: best.probability, predictions };
   const health = describePlantHealth(measured);
   // Keep inconclusive results neutral in storage as well as on screen. The
   // shared policy also interprets older saved records consistently.
   if (health.status === 'inconclusive') return {
-    ...base, title: health.title, topClass: health.title, severity: 'observe',
+    ...identifiedBase, title: health.title, topClass: health.title, severity: 'observe',
     summary: health.summary, care: health.care
   };
   return {

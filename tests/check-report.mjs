@@ -1,5 +1,6 @@
 // Rendering contracts only. All predictions below are fixtures, not plant recognition.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { reportHTML as fullReportHTML, formatPlantAIClassLabel, downloadReport } from '../dist/report.js';
 import { evaluateSymptoms } from '../dist/triage.js';
 const reportHTML = (...args) => fullReportHTML(...args).replace(/<style>[\s\S]*?<\/style>/g, '');
@@ -281,6 +282,91 @@ assert.match(escapedAI, /&lt;iframe src=javascript:alert\(1\)&gt;/);
 assert.match(escapedAI, /<h2>Análise inconclusiva<\/h2>/);
 assert.match(escapedAI, /Endereço do modelo não informado/);
 
+// Species and health are independent measured outcomes, retained in the existing
+// persisted name/reason entries rather than inferred from a manually named plant.
+const speciesEntry = { name: 'Espécie provável: Tomateiro',
+  reason: 'Referência botânica: Solanum lycopersicum. Pontuação para a cultura: 94,0% entre as 14 culturas do modelo. Identificação visual preliminar, sem confirmação botânica.' };
+const identifiedRecord = { ...aiRecord, result: { ...aiRecord.result, possibilities: [speciesEntry,
+  { name: 'Nota complementar', reason: 'A avaliação se refere à folha enviada.' }] } };
+const identifiedBefore = structuredClone(identifiedRecord);
+const identifiedHTML = reportHTML(identifiedRecord, plant);
+assert.match(identifiedHTML, /data-species-status="identified"/);
+assert.match(identifiedHTML, /<dt>Espécie provável<\/dt>/);
+assert.match(identifiedHTML, /<strong>Tomateiro<\/strong>/);
+assert.match(identifiedHTML, /Solanum lycopersicum/);
+assert.match(identifiedHTML, /<dt>Espécie provável \(IA\)<\/dt><dd>Tomateiro \(provável\)<\/dd>/);
+assert.match(identifiedHTML, /<h2>Aparência saudável<\/h2>/);
+assert.match(identifiedHTML, /<h3>Notas da análise<\/h3>/);
+assert.match(identifiedHTML, /Nota complementar/);
+assert.equal((identifiedHTML.match(/Referência botânica:/g) || []).length, 1, 'Species explanation should not repeat as an unrelated note.');
+assert.deepEqual(identifiedRecord, identifiedBefore);
+
+const identifiedButUncertain = { ...uncertainPhotoRecord, result: { ...uncertainPhotoRecord.result, possibilities: [speciesEntry] } };
+const identifiedButUncertainHTML = reportHTML(identifiedButUncertain, plant);
+assert.match(identifiedButUncertainHTML, /data-health-status="inconclusive"/);
+assert.match(identifiedButUncertainHTML, /data-species-status="identified"/);
+assert.match(identifiedButUncertainHTML, /<strong>Tomateiro<\/strong>/);
+assert.match(identifiedButUncertainHTML, /Não há uma avaliação de saúde conclusiva/);
+assert.doesNotMatch(identifiedButUncertainHTML, /<div class="rp-donut"|role="meter"|Não há uma identificação conclusiva/);
+assert.equal(reportHTML(JSON.parse(JSON.stringify(identifiedButUncertain)), plant), identifiedButUncertainHTML, 'A restored report must retain independent species feedback.');
+
+const unknownSpeciesRecord = { ...aiRecord, result: { ...aiRecord.result,
+  possibilities: [{ name: 'Espécie não identificada', reason: 'A IA não diferenciou a cultura com segurança suficiente.' }] } };
+const unknownSpeciesHTML = reportHTML(unknownSpeciesRecord, plant);
+assert.match(unknownSpeciesHTML, /data-health-status="healthy"/);
+assert.match(unknownSpeciesHTML, /data-species-status="inconclusive"/);
+assert.match(unknownSpeciesHTML, /<strong>Espécie não identificada<\/strong>/);
+assert.match(unknownSpeciesHTML, /<h2>Aparência saudável<\/h2>/);
+assert.match(unknownSpeciesHTML, /<div class="rp-donut"/);
+
+const manualSpeciesHTML = reportHTML(identifiedRecord, { ...plant, species: 'Planta cadastrada pelo usuário' });
+assert.match(manualSpeciesHTML, /<dt>Espécie cadastrada<\/dt><dd>Planta cadastrada pelo usuário<\/dd>/);
+assert.match(manualSpeciesHTML, /<dt>Espécie provável<\/dt>/);
+assert.match(manualSpeciesHTML, /<strong>Tomateiro<\/strong>/);
+assert.doesNotMatch(manualSpeciesHTML, /<strong>Planta cadastrada pelo usuário<\/strong>/);
+const escapedSpecies = { ...identifiedRecord, result: { ...identifiedRecord.result, possibilities: [
+  { ...speciesEntry, reason: 'Solanum lycopersicum <img src=x onerror=alert(1)>' },
+  { name: 'Aviso <script>injetado</script>', reason: 'Observação <iframe src=javascript:alert(1)>' }
+] } };
+const escapedSpeciesHTML = reportHTML(escapedSpecies, { ...plant, species: '<img src=x onerror=alert(2)>' });
+assert.doesNotMatch(escapedSpeciesHTML, /<img src=x|<script>|<iframe /);
+assert.match(escapedSpeciesHTML, /Solanum lycopersicum &lt;img/);
+assert.match(escapedSpeciesHTML, /Aviso &lt;script&gt;injetado/);
+assert.match(escapedSpeciesHTML, /Observação &lt;iframe/);
+assert.match(escapedSpeciesHTML, /Espécie cadastrada<\/dt><dd>&lt;img/);
+
+// The bundled TM model now shares badges/verdicts with the rest of the app.
+// Grouped disease evidence must not display the leading class score as a health score.
+const bundledMetadata = JSON.parse(readFileSync(new URL('../dist/my_model/metadata.json', import.meta.url), 'utf8'));
+function bundledReport(scores) {
+  const predictions = scores.map(([className, probability]) => ({ className, probability }));
+  return { ...record, result: { method: 'teachable-machine', modelName: bundledMetadata.modelName,
+    modelURL: new URL('../dist/my_model/', import.meta.url).href, modelLabels: bundledMetadata.labels,
+    predictions, topClass: predictions[0].className, confidence: predictions[0].probability } };
+}
+const bundledHealthy = bundledReport([['Plantas_Saudaveis', 0.9], ['Ferrugem', 0.06], ['Desconhecidas', 0.02]]);
+const bundledHealthyHTML = reportHTML(bundledHealthy, plant);
+assert.match(bundledHealthyHTML, /data-health-status="healthy"/);
+assert.match(bundledHealthyHTML, /<h2>Aparência saudável<\/h2>/);
+assert.match(bundledHealthyHTML, /EcoPlant · aparência saudável/);
+assert.match(bundledHealthyHTML, /rp-verdict-healthy/);
+assert.match(bundledHealthyHTML, /<strong>Espécie não analisada<\/strong>/);
+assert.doesNotMatch(bundledHealthyHTML, /<h2>Plantas_Saudaveis<\/h2>|<dt>Planta reconhecida pelo modelo<\/dt>/);
+const bundledGrouped = bundledReport([['Ferrugem', 0.4], ['Míldio', 0.3], ['Oídio', 0.15]]);
+bundledGrouped.result.title = 'Análise inconclusiva';
+const groupedBefore = structuredClone(bundledGrouped);
+const bundledGroupedHTML = reportHTML(bundledGrouped, plant);
+assert.match(bundledGroupedHTML, /data-health-status="disease"/);
+assert.match(bundledGroupedHTML, /<h2>Sinais de possível doença<\/h2>/);
+assert.match(bundledGroupedHTML, /Causa ainda não definida/);
+assert.match(bundledGroupedHTML, /não distinguem qual delas/);
+assert.doesNotMatch(bundledGroupedHTML, /<div class="rp-donut"|<h2>Análise inconclusiva<\/h2>/);
+assert.equal((bundledGroupedHTML.match(/role="meter"/g) || []).length, 3, 'Original class scores remain available in the details, not as a synthetic health score.');
+assert.deepEqual(bundledGrouped, groupedBefore);
+const bundledNeutral = bundledReport([['Planta de plastico', 0.9], ['Plantas_Saudaveis', 0.05], ['Ferrugem', 0.02]]);
+assert.match(reportHTML(bundledNeutral, plant), /data-health-status="inconclusive"/);
+assert.doesNotMatch(reportHTML(bundledNeutral, plant), /<div class="rp-donut"|role="meter"/);
+
 // JSON export keeps the original measurements while exposing the current interpretation.
 let exportedBlob;
 const originalCreateObjectURL = URL.createObjectURL;
@@ -307,10 +393,23 @@ try {
   assert(downloaded.size > 0);
   downloadReport(record, plant);
   assert.equal('assessment' in JSON.parse(await exportedBlob.text()), false, 'TM export must not invent an EcoPlant health verdict.');
+  downloadReport(identifiedButUncertain, { ...plant, species: 'Nome cadastrado' });
+  const speciesEnvelope = JSON.parse(await exportedBlob.text());
+  assert.equal(speciesEnvelope.assessment.status, 'inconclusive');
+  assert.equal(speciesEnvelope.speciesAssessment.status, 'identified');
+  assert.equal(speciesEnvelope.speciesAssessment.name, 'Tomateiro');
+  assert.equal(speciesEnvelope.plant.species, 'Nome cadastrado');
+  assert.deepEqual(speciesEnvelope.report, identifiedButUncertain);
+  downloadReport(bundledGrouped, plant);
+  const groupedEnvelope = JSON.parse(await exportedBlob.text());
+  assert.equal(groupedEnvelope.assessment.status, 'disease');
+  assert.equal(groupedEnvelope.assessment.condition, '');
+  assert.equal(groupedEnvelope.assessment.reason, 'disease-group');
+  assert.deepEqual(groupedEnvelope.report, bundledGrouped);
 } finally {
   URL.createObjectURL = originalCreateObjectURL;
   URL.revokeObjectURL = originalRevokeObjectURL;
   if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
 }
 
-console.log('Report checks passed: clear healthy/disease/pest verdicts across 38 known classes, neutral abstention, safe stale records, consistent AI presentation, source and raw data preservation, photographic records, PDF/new-photo actions, TM legacy and escaping. Fixture scores only, not model recognition.');
+console.log('Report checks passed: independent species and health feedback, registered/inferred species attribution, bundled TM and 38-class verdicts, grouped disease without a synthetic health score, neutral abstention, persistence/export, supplemental notes, safe stale records, legacy TM behavior, PDF/new-photo actions and escaping. Fixture scores only, not model recognition.');

@@ -217,7 +217,7 @@ await test('valid disease output preserves raw labels, real scores and preproces
   assert.ok(Math.abs(calls.tensors[0].data[224 * 224] - (64 / 255 - .456) / .224) < 1e-6);
   assert.deepEqual(calls.draw[0].slice(1), [-58, -16, 341, 256]);
   assert.equal(calls.tensors[0].disposed, 1); assert.equal(calls.outputs[0].logits.disposed, 1);
-  const allowed = new Set(['method','title','topClass','confidence','predictions','modelLabels','modelName','modelURL','summary','care','disclaimer','severity','analyzedAt']);
+  const allowed = new Set(['method','title','topClass','confidence','predictions','modelLabels','modelName','modelURL','summary','care','disclaimer','severity','analyzedAt','possibilities']);
   for (const key of Object.keys(result)) assert.ok(allowed.has(key), `RTDB-compatible field ${key}`);
   assert.ok(result.title.length <= 400 && result.disclaimer.length <= 5000 && result.care.length <= 20);
   api.clearPlantAI();
@@ -229,6 +229,8 @@ await test('healthy class is qualified and remains an observation', async () => 
   assert.equal(result.topClass, 'Tomato___healthy'); assert.equal(result.severity, 'observe');
   assert.equal(result.title, 'Aparência saudável');
   assert.match(result.summary, /não descarta/); assert.ok(result.confidence > .5);
+  assert.equal(api.describePlantSpecies(result).name, 'Tomateiro');
+  assert.match(api.describePlantSpecies(result).summary, /Solanum lycopersicum/);
   api.clearPlantAI();
 });
 
@@ -239,6 +241,9 @@ await test('high softmax outside the known leaf distribution yields no disease o
   assert.equal(result.severity, 'observe');
   assert.ok(!Object.hasOwn(result, 'confidence')); assert.ok(!Object.hasOwn(result, 'predictions'));
   assert.match(result.summary, /Nenhuma doença/);
+  assert.equal(api.describePlantSpecies(result).status, 'inconclusive');
+  assert.equal(api.describePlantSpecies(result).name, 'Espécie não identificada');
+  assert.doesNotMatch(api.describePlantSpecies(result).summary, /\d+[,.]\d+%|Macieira/);
   api.clearPlantAI();
 });
 
@@ -262,6 +267,62 @@ await test('moderate confidence is stored as inconclusive without stale disease 
   assert.ok(!('confidence' in result) && !('predictions' in result));
   assert.doesNotMatch(result.summary, /sarna/i);
   api.clearPlantAI();
+});
+
+await test('species aggregates all class scores even when no disease is certain', async () => {
+  const { api } = await fresh({ run() {
+    const outputs = outputFixture({ top: 28 });
+    outputs.logits.data.fill(-20);
+    for (const index of [28, 29, 30, 31]) outputs.logits.data[index] = Math.log(.22);
+    outputs.logits.data[0] = Math.log(.12);
+    return outputs;
+  } });
+  const result = await api.classifyPlantAI(image);
+  assert.equal(result.title, 'Análise inconclusiva', 'uncertain disease must remain uncertain');
+  assert.ok(!('confidence' in result) && !('predictions' in result));
+  const species = api.describePlantSpecies(result);
+  assert.equal(species.status, 'identified');
+  assert.equal(species.name, 'Tomateiro');
+  assert.match(species.summary, /88,0%/);
+  assert.match(species.summary, /Solanum lycopersicum/);
+  assert.deepEqual(Object.keys(result.possibilities[0]).sort(), ['name', 'reason']);
+  api.clearPlantAI();
+});
+
+await test('ambiguous crops do not produce a forced species', async () => {
+  const { api } = await fresh({ run() {
+    const outputs = outputFixture();
+    outputs.logits.data.fill(-20);
+    outputs.logits.data[0] = Math.log(.6);
+    outputs.logits.data[37] = Math.log(.4);
+    return outputs;
+  } });
+  const result = await api.classifyPlantAI(image);
+  assert.equal(api.describePlantSpecies(result).status, 'inconclusive');
+  assert.equal(result.possibilities[0].name, 'Espécie não identificada');
+  api.clearPlantAI();
+});
+
+await test('broad crop groups preserve botanical ambiguity', async () => {
+  for (const [top, common, genus] of [[4, 'Mirtilo', 'Vaccinium spp.'], [5, 'Cerejeira', 'Prunus spp.'], [25, 'Abóbora', 'Cucurbita spp.']]) {
+    const { api } = await fresh({ top });
+    const result = await api.classifyPlantAI(image);
+    const species = api.describePlantSpecies(result);
+    assert.equal(species.name, common);
+    assert.ok(species.summary.includes(genus));
+    assert.match(species.summary, /não diferencia a espécie exata/);
+    assert.ok(result.predictions.length <= 3);
+    api.clearPlantAI();
+  }
+});
+
+await test('species helper accepts only the explicit recognized metadata contract', async () => {
+  const { api } = await fresh();
+  for (const result of [null, {}, { possibilities: 'invalid' }, { possibilities: [{ name: 'Espécie provável: Inventada', reason: 'Not recognized' }] }, { possibilities: [{ name: 'Espécie provável: Tomateiro', reason: '' }] }]) {
+    assert.equal(api.describePlantSpecies(result).status, 'unassessed');
+  }
+  const result = { method: 'teachable-machine', possibilities: [{ name: 'Espécie provável: Tomateiro', reason: 'Referência botânica: Solanum lycopersicum.' }] };
+  assert.equal(api.describePlantSpecies(result).status, 'identified', 'combined TM report can carry measured DINO species feedback');
 });
 
 await test('invalid output dimensions/NaN never become a report; tensors are freed', async () => {
@@ -404,7 +465,7 @@ await test('inference timeout discards late output and safely releases after cle
 await test('runtime script is pinned and retries a transient script failure', async () => {
   const { api, calls } = await fresh({ noRuntime: true, scriptError: attempt => attempt === 1 });
   await api.loadPlantAI(); assert.equal(calls.scripts.length, 2);
-  assert.equal(calls.scripts[0].src, 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.min.js');
+  assert.equal(calls.scripts[0].src, 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.wasm.min.js');
   assert.equal(calls.scripts[0].removed, true); api.clearPlantAI();
 });
 

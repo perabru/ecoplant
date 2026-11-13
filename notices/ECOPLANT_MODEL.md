@@ -1,6 +1,6 @@
 # Modelo EcoPlant — 10 classes
 
-Este é o modelo incorporado na versão 1.2.0 do [EcoPlant](https://perabru.github.io/ecoplant/#scan). Seus arquivos de inferência estão em `dist/my_model/` e são publicados em `docs/my_model/`. Uma análise nova usa esse modelo como opção inicial; não requer importar arquivos nem informar uma chave de API.
+Este é o modelo incorporado na versão 1.2.0 do [EcoPlant](https://perabru.github.io/ecoplant/#scan). Seus arquivos de inferência estão em `dist/my_model/` e são publicados em `docs/my_model/`. Desde a versão 1.3.0, está disponível em **Treinamento do projeto — 10 classes**, e deixou de ser a opção inicial após erros observados em fotografias externas. A análise completa usa o modelo DINOv2/PlantVillage para as culturas que ele reconhece. Veja a [validação da versão 1.3.0](RELEASE_1_3_0.md). Nenhum desses modos requer importar arquivos nem informar uma chave de API.
 
 ## Origem e treinamento
 

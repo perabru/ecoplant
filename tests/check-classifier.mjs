@@ -58,7 +58,8 @@ function responseFor(url, options = {}) {
 }
 
 async function fresh(options = {}) {
-  const calls = { fetch: [], load: [], files: [], models: [], wrappers: [] };
+  const calls = { fetch: [], load: [], files: [], models: [], wrappers: [], backends: [] };
+  let backend = options.backend ?? 'cpu';
   globalThis.tf = {
     io: { fromMemory: artifacts => ({ artifacts }) },
     async loadLayersModel(handler, loadOptions) {
@@ -67,7 +68,14 @@ async function fresh(options = {}) {
       calls.models.push(model);
       return { dispose: () => model.model.dispose(), wrapper: model };
     },
-    ready: async () => {}, setBackend: async () => {}
+    ready: async () => { if (options.ready) await options.ready(backend); },
+    getBackend: () => backend,
+    setBackend: async name => {
+      calls.backends.push(name);
+      const accepted = options.setBackend ? await options.setBackend(name) : true;
+      if (accepted !== false) backend = name;
+      return accepted;
+    }
   };
   globalThis.tmImage = {
     load: () => { throw new Error('Hidden network through tmImage.load is forbidden in this contract.'); },
@@ -457,6 +465,72 @@ await check('Invalid images and inconsistent predictions cannot become analysis 
   await assert.rejects(api.classifyPlant({ tagName: 'IMG', complete: false }, api.BUNDLED_MODEL_URL), { code: 'classifier/invalid-image' });
   assert.equal(calls.load.length, 0);
   await assert.rejects(api.classifyPlant(canvas, api.BUNDLED_MODEL_URL), { code: 'classifier/invalid-prediction' });
+});
+
+await check('A WebGL failure retries the same model and photo once on CPU', async () => {
+  let attempts = 0;
+  const stages = [];
+  const { api, calls } = await fresh({ backend: 'webgl', model: {
+    predict: async (photo, flipped) => {
+      assert.equal(photo, canvas); assert.equal(flipped, false);
+      if (++attempts === 1) throw new Error('WebGL context lost during prediction');
+      assert.equal(globalThis.tf.getBackend(), 'cpu');
+      return probabilities;
+    }
+  } });
+  const result = await api.classifyPlant(canvas, api.BUNDLED_MODEL_URL, (_message, stage) => stages.push(stage));
+  assert.equal(result.topClass, labels[0]); assert.equal(result.confidence, 0.8);
+  assert.equal(attempts, 2); assert.equal(calls.load.length, 1);
+  assert.deepEqual(calls.backends, ['cpu']);
+  assert(stages.includes('backend-retry'));
+});
+
+await check('A CPU failure is surfaced and never loops or fabricates a result', async () => {
+  let attempts = 0;
+  const { api, calls } = await fresh({ backend: 'cpu', model: {
+    predict: async () => { attempts += 1; throw new Error('Invalid runtime operation'); }
+  } });
+  await assert.rejects(api.classifyPlant(canvas, api.BUNDLED_MODEL_URL), { code: 'classifier/prediction-failed' });
+  assert.equal(attempts, 1); assert.deepEqual(calls.backends, []);
+});
+
+await check('Failure on both WebGL and CPU remains an error after two attempts', async () => {
+  let attempts = 0;
+  const { api, calls } = await fresh({ backend: 'webgl', model: {
+    predict: async () => { attempts += 1; throw new Error('Prediction unavailable'); }
+  } });
+  await assert.rejects(api.classifyPlant(canvas, api.BUNDLED_MODEL_URL), { code: 'classifier/prediction-failed' });
+  assert.equal(attempts, 2); assert.deepEqual(calls.backends, ['cpu']);
+});
+
+await check('Cancelling while CPU initializes prevents the second prediction', async () => {
+  let attempts = 0;
+  const started = deferred(), completed = deferred();
+  const { api, calls } = await fresh({ backend: 'webgl',
+    setBackend: () => { started.resolve(); return completed.promise; },
+    model: { predict: async () => { attempts += 1; throw new Error('WebGL unavailable'); } }
+  });
+  const controller = new AbortController();
+  const pending = api.classifyPlant(canvas, api.BUNDLED_MODEL_URL, undefined, { signal: controller.signal });
+  const rejected = assert.rejects(pending, { code: 'classifier/cancelled' });
+  await started.promise; controller.abort(); await rejected;
+  completed.resolve(true); await tick();
+  assert.equal(attempts, 1); assert.deepEqual(calls.backends, ['cpu']);
+});
+
+await check('A rejected CPU backend cannot be mistaken for a successful fallback', async () => {
+  let attempts = 0;
+  const { api, calls } = await fresh({ backend: 'webgl', setBackend: async () => false,
+    model: { predict: async () => { attempts += 1; throw new Error('WebGL unavailable'); } }
+  });
+  await assert.rejects(api.classifyPlant(canvas, api.BUNDLED_MODEL_URL), { code: 'classifier/prediction-failed' });
+  assert.equal(attempts, 1); assert.deepEqual(calls.backends, ['cpu']);
+});
+
+await check('Unavailable initialization backends report an actionable error before inference', async () => {
+  const { api, calls } = await fresh({ backend: 'webgl', ready: async () => { throw new Error('No backend available'); }, setBackend: async () => false });
+  await assert.rejects(api.loadPlantModel(api.BUNDLED_MODEL_URL), { code: 'classifier/backend-unavailable' });
+  assert.equal(calls.load.length, 0); assert.deepEqual(calls.backends, ['cpu']);
 });
 
 await tick();

@@ -1,5 +1,5 @@
 /* Public app shell and pinned SDKs only. User records stay in the UID-scoped DB. */
-const VERSION = 'v14-ecoplant-model';
+const VERSION = 'v15-species-health';
 const PREFIX = 'ecoplant-';
 const SHELL_CACHE = `${PREFIX}shell-${VERSION}`;
 const SDK_CACHE = `${PREFIX}sdk-${VERSION}`;
@@ -71,7 +71,9 @@ self.addEventListener('message', event => {
 async function networkFirst(request, fallbackURL) {
   const cache = await optionalCache(SHELL_CACHE);
   try {
-    const response = await fetch(request);
+    // Revalidate application code so an installed PWA cannot remain on an old
+    // analysis pipeline while GitHub Pages' HTTP cache is still fresh.
+    const response = await fetch(request, { cache: 'no-cache' });
     if (response.status >= 500) {
       const cached = await cachedResponse(cache, request.url) || await cachedResponse(cache, fallbackURL);
       if (cached) return cached;

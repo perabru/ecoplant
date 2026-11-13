@@ -10,22 +10,36 @@ PWA em português para registrar plantas, fotografar folhas e acompanhar sua evo
 1. Abra [Analisar planta](https://perabru.github.io/ecoplant/#scan).
 2. Toque em **Analisar uma planta sem conta** para usar neste aparelho, ou entre na sua conta.
 3. Envie uma foto nítida de uma folha. Se ela estiver pequena ou fora do centro, use **Ajustar enquadramento** e mantenha a folha inteira dentro da moldura.
-4. Confira **Modelo EcoPlant — 10 classes** e toque em **Analisar com o modelo EcoPlant**.
+4. Mantenha **Análise completa — espécie e saúde** e toque em **Identificar planta e avaliar saúde**.
 5. Leia a avaliação, use **Salvar no histórico** e **Imprimir / PDF** quando precisar.
 
 Na versão 1.1.0, a escolha do modo local é retomada ao recarregar e o endereço de análise é preservado. O carregamento da IA e do modelo próprio pode ser cancelado sem perder a foto. O aplicativo guarda uma cópia verificada dos arquivos públicos da IA quando o navegador permite; isso reduz novos downloads. A primeira preparação ainda requer internet, e a disponibilidade offline depende do cache e do armazenamento do navegador.
 
-## Modelo EcoPlant incorporado — versão 1.2.0
+## Correções de identificação e saúde — versão 1.3.0
 
-**Modelo EcoPlant — 10 classes** é a opção inicial para uma análise nova. O modelo foi treinado com o projeto de imagens fornecido para o EcoPlant e os arquivos de inferência estão no próprio site. Não é necessário importar o `.tm`, cadastrar uma chave de API ou conectar um link de modelo para começar.
+A análise inicial agora usa DINOv2/PlantVillage para identificar a cultura provável e avaliar a saúde da folha na mesma fotografia. O relatório mostra a identificação separada da saúde: uma incerteza sobre a doença não apaga uma cultura identificada com pontuação suficiente. A referência botânica fica visível; categorias amplas são apresentadas como grupos de espécies, sem inventar a espécie exata.
+
+O modelo reconhece 14 culturas: tomate, batata, milho, maçã, uva, pimentão, morango, pêssego, cereja, laranja, abóbora, soja, mirtilo e framboesa. Não é um identificador botânico universal. A checagem de compatibilidade da imagem e o limiar de classificação permanecem ativos. Imagens incompatíveis continuam sem espécie e sem condição de saúde atribuídas.
+
+O treinamento de dez classes permanece disponível em **Treinamento do projeto — 10 classes**. Ele deixou de ser o padrão porque testes com fotografias externas revelaram classificações incorretas, incluindo uma folha saudável de tomateiro rotulada como Oídio. A comparação com o modelo do projeto também consulta a identificação da planta separadamente; uma falha nessa consulta mantém a classificação já concluída e informa a ausência da identificação.
+
+Os indicadores de saúde agora interpretam também as classes válidas do treinamento EcoPlant. Quando a soma das pontuações registradas de classes de doença ultrapassa o limiar, mas nenhuma doença isolada é suficientemente definida, a interface informa sinais de possível doença com causa ainda não definida. As pontuações não são transformadas em porcentagem de saúde.
+
+O carregamento usa o runtime WASM correspondente à inferência local. No Teachable Machine, uma falha de WebGL permite uma tentativa real com os mesmos pesos em CPU. A atualização da PWA preserva os modelos públicos já verificados e revalida os arquivos do aplicativo. Identificação, relatório, exportação e histórico usam os campos já aceitos pelas regras do Firebase; não há migração de banco nem nova chave de API.
+
+As verificações de funcionamento e suas limitações estão em [Validação da versão 1.3.0](notices/RELEASE_1_3_0.md).
+
+## Modelo EcoPlant incorporado — histórico da versão 1.2.0
+
+**Modelo EcoPlant — 10 classes** foi incorporado na versão 1.2.0 e continua disponível para comparação, selecionando **Treinamento do projeto — 10 classes**. O modelo foi treinado com o projeto de imagens fornecido para o EcoPlant e os arquivos de inferência estão no próprio site. Não é necessário importar o `.tm`, cadastrar uma chave de API ou conectar um link de modelo.
 
 As classes preservam os nomes do projeto: `Antracnose`, `Desconhecidas`, `Ferrugem`, `Fumagina`, `Míldio`, `Oídio`, `Plantas_Saudaveis`, `Podridão_radicular`, `Vitiligo` e `Planta de plastico`. A ordem exata usada pelos pesos consta em `metadata.json`.
 
 - `Plantas_Saudaveis` é a classe saudável configurada para este modelo.
 - `Desconhecidas` e `Planta de plastico` apresentam um resultado neutro com o rótulo encontrado e sua pontuação, sem afirmar doença ou saúde.
 - Os demais rótulos são apresentados como classes do modelo. A classificação de imagem não confirma diagnóstico nem determina tratamento.
-- Uma probabilidade abaixo de 0,75 mantém **Análise inconclusiva**, com motivo e opção de ajustar a foto. O limiar não foi reduzido para fabricar conclusões.
-- O seletor mantém disponíveis **IA geral — 14 culturas**, **Meu modelo Teachable Machine** e o relatório de observação. Uma reanálise preserva a origem do modelo anterior.
+- Uma probabilidade abaixo de 0,75 não define uma doença específica. A soma das classes de doença pode sustentar apenas a indicação mais ampla de sinais de possível doença; nos demais casos a avaliação permanece inconclusiva. O limiar não foi reduzido.
+- O seletor mantém disponíveis **Análise completa — espécie e saúde**, **Meu modelo Teachable Machine** e o relatório de observação. Uma reanálise preserva a origem do modelo anterior.
 
 O arquivo `.tm` continha 5.155 imagens, sem pesos treinados. A preparação retirou 322 cópias exatas dentro das classes e todas as 18 entradas dos nove grupos com rótulos contraditórios. Das 4.815 imagens únicas restantes, 4.088 foram reservadas para treinamento e 727 para avaliação externa ao treino. O conjunto de avaliação não compartilha hashes de imagens com o treino; semelhanças visuais entre fotos não foram investigadas. Essa avaliação interna não representa acurácia em campo.
 
@@ -49,7 +63,7 @@ A verificação com os pesos reais reproduziu um problema de enquadramento: as m
 - Firebase Realtime Database com registros separados por UID e regras de validação.
 - Cadastro, edição e exclusão de plantas, fotos reduzidas no navegador e histórico.
 - Câmera ao vivo com alternância frontal/traseira e alternativa de câmera nativa/galeria.
-- Modelo EcoPlant de 10 classes incorporado e pronto para análise no navegador, sem chave de API; IA geral DINOv2/PlantVillage disponível como alternativa.
+- Análise completa DINOv2/PlantVillage como padrão, com planta provável e saúde da folha; treinamento EcoPlant de dez classes disponível para comparação, sem chave de API.
 - Conclusão em destaque: aparência saudável, sinais de possível doença, sinais de possível praga ou análise inconclusiva; o nome da hipótese aparece em português.
 - Resultado da última foto na ficha da planta e filtros de resultado no histórico, sempre com data e sem transformar a confiança do modelo em porcentagem de saúde.
 - Suporte a modelos de imagem do Teachable Machine por link hospedado, arquivos selecionados no navegador ou pasta `./my_model/` do aplicativo.
@@ -84,7 +98,7 @@ Autorize `perabru.github.io` em Authentication → Configurações → Domínios
 
 ## Gerar o relatório e usar a IA
 
-Abra **Analisar planta**, envie uma foto e toque em **Analisar com o modelo EcoPlant**. Para usar outro treinamento, altere o seletor antes de analisar. Vincular a foto a uma planta cadastrada é opcional. O relatório aparece no aplicativo; use **Salvar no histórico** para guardá-lo e **Imprimir / PDF** para exportar. Na ficha de uma planta, **Gerar relatório com esta foto** usa a imagem cadastrada; **Analisar uma nova foto** limpa o contexto anterior.
+Abra **Analisar planta**, envie uma foto e toque em **Identificar planta e avaliar saúde**. Para usar outro treinamento, altere o seletor antes de analisar. Vincular a foto a uma planta cadastrada é opcional. O relatório aparece no aplicativo; use **Salvar no histórico** para guardá-lo e **Imprimir / PDF** para exportar. Na ficha de uma planta, **Gerar relatório com esta foto** usa a imagem cadastrada; **Analisar uma nova foto** limpa o contexto anterior.
 
 A opção **Relatório de observação — sem IA** também funciona sem marcar sinais: nesse caso, gera um registro fotográfico neutro, sem hipótese de doença ou afirmação de saúde. Falhas na IA nunca acionam essa opção silenciosamente.
 

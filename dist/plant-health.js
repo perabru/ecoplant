@@ -1,5 +1,5 @@
 /**
- * Shared interpretation of EcoPlant's measured PlantVillage predictions.
+ * Shared interpretation of EcoPlant's measured image-model predictions.
  * It does not run a model, inspect pixels, or replace the inference-time OOD check.
  * Classes/source: https://huggingface.co/rodynaemad/plant-disease-dinov2-small
  * The source model was trained on isolated leaves; this is a screening result,
@@ -62,6 +62,101 @@ const lowerFirst = value => value.charAt(0).toLocaleLowerCase('pt-BR') + value.s
 const HEALTHY_ONLY_CROPS = new Set(['Mirtilo', 'Framboeseira', 'Soja']);
 const DISEASE_ONLY_CROPS = new Set(['Laranjeira', 'Abóbora']);
 
+// This vocabulary belongs to the shipped EcoPlant model. A custom model is
+// never considered a disease detector merely because one of its labels sounds
+// healthy. Keep the measured class scores unchanged in the source record.
+const ECOPLANT_MODEL_NAME = 'Modelo EcoPlant — 10 classes';
+const ECOPLANT_MODEL_URL = new URL('./my_model/', import.meta.url).href;
+const ECOPLANT_CLASSES = Object.freeze([
+  'Antracnose', 'Desconhecidas', 'Ferrugem', 'Fumagina', 'Míldio', 'Oídio',
+  'Plantas_Saudaveis', 'Podridão_radicular', 'Vitiligo', 'Planta de plastico'
+]);
+const ECOPLANT_DISEASES = new Set(['Antracnose', 'Ferrugem', 'Fumagina', 'Míldio', 'Oídio', 'Podridão_radicular']);
+const ECOPLANT_NEUTRAL = new Set(['Desconhecidas', 'Planta de plastico']);
+
+function isEcoPlantModel(result) {
+  return isRecord(result) && result.method === 'teachable-machine'
+    && result.modelName === ECOPLANT_MODEL_NAME
+    && (result.modelURL === './my_model/' || result.modelURL === ECOPLANT_MODEL_URL)
+    && Array.isArray(result.modelLabels) && result.modelLabels.length === ECOPLANT_CLASSES.length
+    && new Set(result.modelLabels).size === ECOPLANT_CLASSES.length
+    && result.modelLabels.every(label => ECOPLANT_CLASSES.includes(label));
+}
+
+function ecoPlantInconclusive(reason, summary) {
+  return {
+    status: 'inconclusive', title: 'Análise inconclusiva', shortLabel: 'Inconclusivo',
+    crop: '', condition: '', tone: 'neutral', reason,
+    summary: summary || 'O modelo EcoPlant ainda não diferenciou a aparência saudável das alterações conhecidas com segurança suficiente nesta foto.',
+    care: [
+      'Envie uma foto nítida de uma única folha natural, inteira e centralizada, com luz natural e pouco fundo.',
+      'Fotografe também outras folhas e anote manchas, murcha ou mudanças de coloração.',
+      'Se os sinais persistirem, leve os registros a um profissional para avaliar a causa.'
+    ]
+  };
+}
+
+function describeEcoPlantHealth(result) {
+  if (result.status === 'inconclusive' || result.severity === 'inconclusive'
+      || result.topClass === 'Análise inconclusiva') return ecoPlantInconclusive('explicit-inconclusive');
+  if (!isProbability(result.confidence)) return ecoPlantInconclusive('missing-or-invalid-confidence');
+  if (!ECOPLANT_CLASSES.includes(result.topClass)) return ecoPlantInconclusive('unknown-class');
+  if (!Array.isArray(result.predictions) || result.predictions.length < 2
+      || result.predictions.length > ECOPLANT_CLASSES.length) return ecoPlantInconclusive('missing-or-invalid-predictions');
+  const seen = new Set(), predictions = [];
+  let total = 0, diseaseMass = 0;
+  for (const item of result.predictions) {
+    if (!isRecord(item) || !ECOPLANT_CLASSES.includes(item.className)
+        || !isProbability(item.probability) || seen.has(item.className)) return ecoPlantInconclusive('invalid-predictions');
+    seen.add(item.className);
+    total += item.probability;
+    if (ECOPLANT_DISEASES.has(item.className)) diseaseMass += item.probability;
+    predictions.push({ className: item.className, probability: item.probability });
+  }
+  predictions.sort((a, b) => b.probability - a.probability);
+  const best = predictions[0];
+  if (total > 1 + SCORE_TOLERANCE || best.className !== result.topClass
+      || Math.abs(best.probability - result.confidence) > SCORE_TOLERANCE) return ecoPlantInconclusive('inconsistent-predictions');
+  // A top-class uncertainty marker is expected below 0.75. It must not erase
+  // enough measured evidence for the broader disease group. Conversely, an
+  // explicit rejection beside a confident class remains a rejection.
+  if (result.title === 'Análise inconclusiva' && best.probability >= PLANT_HEALTH_POLICY.minConfidence) return ecoPlantInconclusive('explicit-inconclusive');
+  if (ECOPLANT_NEUTRAL.has(best.className)) return ecoPlantInconclusive('outside-health-scope',
+    `O modelo aproximou a foto da classe “${best.className}”. Essa classe não avalia saúde; envie outra foto de uma folha natural para comparar os sinais.`);
+  // "Vitiligo" is the supplied training label, not a validated plant disease.
+  // Neither that class nor unknown/plastic scores may support a disease sum.
+  if (best.className === 'Vitiligo') return ecoPlantInconclusive('non-diagnostic-class',
+    'O modelo aproximou a foto da classe “Vitiligo”, nome usado no treinamento para alterações de coloração. Esse rótulo não confirma doença nem permite afirmar que a planta está saudável.');
+  if (best.className === 'Plantas_Saudaveis' && best.probability >= PLANT_HEALTH_POLICY.minConfidence) return {
+    status: 'healthy', title: 'Aparência saudável', shortLabel: 'Aparência saudável',
+    crop: '', condition: 'Folha com aparência saudável', tone: 'healthy', reason: 'accepted-classification',
+    summary: 'Nesta foto, a folha se parece com os exemplos da classe saudável do modelo EcoPlant. Isso não descarta outros problemas nem avalia a saúde da planta inteira.',
+    care: [
+      'Mantenha o acompanhamento e fotografe a mesma folha novamente para comparar mudanças.',
+      'Observe também o verso das folhas, o caule e o substrato; a análise cobre apenas a foto enviada.',
+      'Se surgirem manchas, murcha ou perda de vigor, faça um novo registro e procure orientação agronômica.'
+    ]
+  };
+  // Firebase stores the three leading classes. Their sum is a conservative
+  // lower bound, not a renormalized health score. Omitted probability may all
+  // belong to other classes and this >= 0.75 conclusion still holds.
+  if (diseaseMass < PLANT_HEALTH_POLICY.minConfidence) return ecoPlantInconclusive('low-confidence');
+  const exact = best.probability >= PLANT_HEALTH_POLICY.minConfidence && ECOPLANT_DISEASES.has(best.className);
+  const condition = exact ? best.className.replaceAll('_', ' ') : '';
+  return {
+    status: 'disease', title: 'Sinais de possível doença', shortLabel: 'Possível doença',
+    crop: '', condition, tone: 'danger', reason: exact ? 'accepted-classification' : 'disease-group',
+    summary: exact
+      ? `A foto se aproxima dos exemplos da classe “${condition}” do modelo EcoPlant. É uma hipótese visual; outras doenças e condições de cultivo podem produzir sinais parecidos.`
+      : 'As principais respostas do modelo se concentram em classes de doença, mas não distinguem qual delas com segurança. A foto apresenta sinais que merecem atenção; a causa precisa ser confirmada pela observação da planta.',
+    care: [
+      'Fotografe os dois lados das folhas e registre onde aparecem os sinais e se eles estão aumentando.',
+      'Compare novas fotos e anote alterações de rega, iluminação e cultivo que possam ajudar na avaliação.',
+      'Procure orientação agronômica para confirmar a causa antes de iniciar um tratamento ou aplicar produtos.'
+    ]
+  };
+}
+
 const INCONCLUSIVE_GUIDANCE = Object.freeze([
   'Envie uma nova foto de uma única folha inteira, nítida, com luz natural e fundo simples.',
   'Confira se a planta está entre as culturas reconhecidas. Outras espécies podem ficar sem conclusão.',
@@ -78,6 +173,14 @@ const INCONCLUSIVE_COPY = Object.freeze({
       'Ajuste o enquadramento para mostrar uma única folha inteira e centralizada, com pouco fundo ao redor.',
       'Confira se a espécie aparece entre as 14 culturas atendidas. Para outra planta, conecte um modelo treinado para ela.',
       'Se a folha já estiver bem enquadrada, experimente outra foto nítida com luz natural. Uma folha legível também pode ficar sem conclusão quando a foto ou a condição difere dos exemplos do modelo.'
+    ])
+  }),
+  'model-disagreement': Object.freeze({
+    summary: 'Os dois modelos produziram avaliações diferentes sobre a saúde desta folha. Não foi atribuída uma condição saudável ou uma doença nesta análise.',
+    care: Object.freeze([
+      'Faça outra foto de uma única folha natural, inteira e nítida, com luz uniforme e pouco fundo.',
+      'Compare os dois lados da folha e outras folhas da mesma planta; anote manchas, murcha ou mudanças de coloração.',
+      'Se os sinais persistirem ou as análises continuarem divergentes, leve as fotos a um profissional para avaliar a causa.'
     ])
   })
 });
@@ -118,14 +221,17 @@ function recordedInconclusive(result) {
 /**
  * Derive user-facing text without mutating or adding fields to stored records.
  * The caller must pass the original result, including its measured predictions.
- * Inference-time rejection is represented by the absence of valid scores or an
- * explicit inconclusive title/class; this function never recovers that verdict.
+ * PlantVillage inference-time rejection is represented by the absence of valid
+ * scores or explicit inconclusive markers; it is never turned into a verdict.
+ * The bundled EcoPlant model can support its disease group while its individual
+ * leading disease class remains uncertain, using only recorded score mass.
  *
  * @returns {{status:'healthy'|'disease'|'pest'|'inconclusive'|'unassessed', title:string,
  * shortLabel:string, crop:string, condition:string, summary:string, care:string[],
  * tone:'healthy'|'danger'|'neutral', reason:string}}
  */
 export function describePlantHealth(result) {
+  if (isEcoPlantModel(result)) return describeEcoPlantHealth(result);
   if (!isRecord(result) || result.method !== 'plant-ai') return {
     status: 'unassessed', title: 'Saúde não avaliada pela IA de imagem', shortLabel: 'Sem avaliação por IA',
     crop: '', condition: '', tone: 'neutral', reason: 'unsupported-method',
